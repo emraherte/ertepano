@@ -5,6 +5,8 @@ export interface User {
   username: string;
   fullName: string;
   role: Role;
+  /** 'ldap' = Active Directory hesabı (parola AD'de yönetilir) */
+  authSource?: 'local' | 'ldap';
 }
 
 export interface Stats {

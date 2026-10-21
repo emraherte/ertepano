@@ -1,6 +1,8 @@
 import { useState } from 'react';
+import { motion } from 'framer-motion';
+import { ScrollText, Search } from 'lucide-react';
 import { fmtDateTime, useApi } from '../api';
-import { PageHead } from '../ui';
+import { Avatar, Card, cn, EmptyState, Input, listItem, PageHeader, SkeletonCard, td, th, trCls } from '../ui';
 
 interface Row {
   id: number;
@@ -16,12 +18,16 @@ interface Row {
 const ACTIONS: Record<string, string> = {
   login: 'Giriş yaptı',
   login_failed: 'Hatalı giriş denemesi',
+  ldap_login: 'AD ile giriş yaptı',
+  ldap_login_failed: 'AD girişi başarısız',
+  ldap_tested: 'LDAP bağlantısını test etti',
+  ldap_user_provisioned: 'AD kullanıcısı oluşturuldu',
   announcement_created: 'Duyuru oluşturdu',
   announcement_published: 'Duyuru yayınladı',
   announcement_updated: 'Duyuru güncelledi',
   announcement_ended: 'Duyuru bitirdi',
   announcement_deleted: 'Duyuru sildi',
-  emergency_started: '🚨 ACİL DURUM BAŞLATTI',
+  emergency_started: 'ACİL DURUM BAŞLATTI',
   emergency_ended: 'Acil durumu bitirdi',
   drill_started: 'Tatbikat başlattı',
   drill_ended: 'Tatbikatı bitirdi',
@@ -43,38 +49,82 @@ const ACTIONS: Record<string, string> = {
   kiosk_key_rotated: 'Kiosk anahtarını yeniledi',
 };
 
+const tone = (a: string) =>
+  a.startsWith('emergency') || a.endsWith('_failed') || a === 'enroll_rejected'
+    ? 'text-rose-600 dark:text-rose-400'
+    : a.startsWith('drill')
+      ? 'text-amber-600 dark:text-amber-400'
+      : a.includes('deleted') || a.includes('revoked')
+        ? 'text-slate-900 dark:text-white'
+        : 'text-slate-700 dark:text-slate-200';
+
 export function Audit() {
   const [q, setQ] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const { data } = useApi<{ items: Row[] }>(`/api/audit${debounced ? `?q=${encodeURIComponent(debounced)}` : ''}`);
+  const [applied, setApplied] = useState('');
+  const { data } = useApi<{ items: Row[] }>(`/api/audit${applied ? `?q=${encodeURIComponent(applied)}` : ''}`);
+  const items = data?.items ?? [];
+
   return (
     <>
-      <PageHead title="Denetim kaydı" sub="Panelde yapılan her işlem silinemez şekilde kaydedilir (saklama: 2 yıl).">
-        <input
-          placeholder="Kişi veya işlem ara…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && setDebounced(q)}
-          onBlur={() => setDebounced(q)}
-          style={{ width: 260 }}
-        />
-      </PageHead>
-      <div className="card tbl-wrap">
-        <table className="tbl">
-          <thead><tr><th>Zaman</th><th>Kim</th><th>İşlem</th><th>Ayrıntı</th><th>IP</th></tr></thead>
-          <tbody>
-            {(data?.items ?? []).map((r) => (
-              <tr key={r.id}>
-                <td className="small" style={{ whiteSpace: 'nowrap' }}>{fmtDateTime(r.createdAt)}</td>
-                <td className="small"><b>{r.actor ?? 'sistem'}</b></td>
-                <td className="small" style={{ color: r.action.startsWith('emergency') ? 'var(--danger)' : undefined }}>{ACTIONS[r.action] ?? r.action}</td>
-                <td className="small mono faint" style={{ maxWidth: 420, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.details ?? ''}>{r.details}</td>
-                <td className="small mono faint">{r.ip}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <PageHeader
+        eyebrow={<><ScrollText size={14} /> Uyum</>}
+        title="Denetim kaydı"
+        description="Panelde yapılan her işlem silinemez şekilde kaydedilir (saklama: 2 yıl)."
+        actions={
+          <Input
+            icon={Search}
+            placeholder="Kişi veya işlem ara… (Enter)"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && setApplied(q)}
+            onBlur={() => setApplied(q)}
+            className="w-full sm:w-80"
+          />
+        }
+      />
+      {!data ? (
+        <SkeletonCard rows={8} />
+      ) : (
+        <Card className="overflow-hidden">
+          {items.length === 0 ? (
+            <EmptyState icon={ScrollText} title="Kayıt bulunamadı" description={applied ? `"${applied}" için eşleşen işlem yok.` : undefined} />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr>
+                    <th className={th}>Zaman</th>
+                    <th className={th}>Kim</th>
+                    <th className={th}>İşlem</th>
+                    <th className={th}>Ayrıntı</th>
+                    <th className={th}>IP</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((r, i) => (
+                    <motion.tr key={r.id} variants={listItem} initial="hidden" animate="show" custom={i} className={trCls}>
+                      <td className={cn(td, 'text-[13px] whitespace-nowrap text-slate-500 tabular-nums')}>{fmtDateTime(r.createdAt)}</td>
+                      <td className={td}>
+                        <div className="flex items-center gap-2.5">
+                          <Avatar name={r.actor ?? 'Sistem'} size={28} />
+                          <span className="text-[13px] font-semibold text-slate-900 dark:text-white">{r.actor ?? 'sistem'}</span>
+                        </div>
+                      </td>
+                      <td className={cn(td, 'text-[13px] font-medium', tone(r.action))}>{ACTIONS[r.action] ?? r.action}</td>
+                      <td className={cn(td, 'max-w-[420px]')}>
+                        <div className="truncate font-mono text-[12px] text-slate-400" title={r.details ?? ''}>
+                          {r.details}
+                        </div>
+                      </td>
+                      <td className={cn(td, 'font-mono text-[12px] text-slate-400')}>{r.ip}</td>
+                    </motion.tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
     </>
   );
 }

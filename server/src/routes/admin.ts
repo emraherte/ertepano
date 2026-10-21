@@ -11,6 +11,7 @@ import { annDto, type AnnRow, approvedDevices, parseTargets } from '../announcem
 import { onlineCount } from '../hub.js';
 import { hashPassword, newPassword, randomToken, uuid, verifyPassword } from '../security.js';
 import { localToday, runDailyAutomation } from '../scheduler.js';
+import { ldapTest } from '../ldap.js';
 import { deviceAlerts } from './devices.js';
 
 const mediaDir = path.join(config.dataDir, 'media');
@@ -236,7 +237,7 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---- Panel kullanıcıları ----
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => ({
     items: db
-      .prepare('SELECT id, username, full_name fullName, role, is_active isActive, created_at createdAt, last_login_at lastLoginAt FROM users ORDER BY username')
+      .prepare('SELECT id, username, full_name fullName, role, is_active isActive, auth_source authSource, email, created_at createdAt, last_login_at lastLoginAt FROM users ORDER BY username')
       .all()
       .map((u) => ({ ...(u as object), isActive: !!(u as { isActive: number }).isActive })),
   }));
@@ -263,8 +264,11 @@ export async function adminRoutes(app: FastifyInstance) {
     if (id === req.user!.id && (b.isActive === false || (b.role && b.role !== 'admin'))) {
       return reply.code(400).send({ error: 'Kendi yönetici hesabınızı kapatamaz veya rolünü düşüremezsiniz' });
     }
-    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as { full_name: string; role: string; is_active: number } | undefined;
+    const u = db.prepare('SELECT * FROM users WHERE id = ?').get(id) as { full_name: string; role: string; is_active: number; auth_source: string } | undefined;
     if (!u) return reply.code(404).send({ error: 'Kullanıcı bulunamadı' });
+    if (u.auth_source === 'ldap' && ((b.role && b.role !== u.role) || b.resetPassword || b.fullName)) {
+      return reply.code(400).send({ error: "Active Directory kullanıcısının rolü, adı ve parolası AD'den gelir; panelden yalnızca erişimi açılıp kapatılabilir" });
+    }
     db.prepare('UPDATE users SET full_name = ?, role = ?, is_active = ? WHERE id = ?').run(
       b.fullName ?? u.full_name, b.role ?? u.role, b.isActive === undefined ? u.is_active : b.isActive ? 1 : 0, id,
     );
@@ -280,11 +284,40 @@ export async function adminRoutes(app: FastifyInstance) {
 
   app.post('/api/auth/password', { preHandler: requireRole() }, async (req, reply) => {
     const b = z.object({ current: z.string().min(1), next: z.string().min(10, 'Yeni parola en az 10 karakter olmalı').max(256) }).parse(req.body);
+    if (req.user!.authSource === 'ldap') return reply.code(400).send({ error: "Parolanız Active Directory'de yönetilir" });
     const u = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user!.id) as { password_hash: string };
     if (!verifyPassword(b.current, u.password_hash)) return reply.code(400).send({ error: 'Mevcut parola hatalı' });
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.next), req.user!.id);
     audit(req.user!.username, 'password_changed', 'user', req.user!.id, undefined, req.ip);
     return { ok: true };
+  });
+
+  // ---- Active Directory / LDAP (yapılandırma ortam değişkenlerinden; panel salt-okur + test) ----
+  app.get('/api/settings/ldap', { preHandler: requireRole('admin') }, async () => {
+    const l = config.ldap;
+    const counts = db.prepare("SELECT auth_source s, COUNT(*) c FROM users GROUP BY auth_source").all() as { s: string; c: number }[];
+    return {
+      enabled: l.enabled,
+      url: l.url ?? null,
+      baseDn: l.baseDn ?? null,
+      bindDn: l.bindDn ?? null,
+      bindPasswordSet: !!l.bindPassword,
+      userFilter: l.userFilter,
+      domain: l.domain,
+      startTls: l.startTls,
+      caFile: l.caFile ?? null,
+      rejectUnauthorized: l.rejectUnauthorized,
+      groups: l.groups,
+      defaultRole: l.defaultRole,
+      users: Object.fromEntries(counts.map((r) => [r.s, r.c])),
+    };
+  });
+
+  app.post('/api/settings/ldap/test', { preHandler: requireRole('admin') }, async (req) => {
+    const b = z.object({ username: z.string().trim().max(128).optional() }).parse(req.body ?? {});
+    const result = await ldapTest(b.username || undefined);
+    audit(req.user!.username, 'ldap_tested', 'settings', null, { ok: result.ok, username: b.username }, req.ip);
+    return result;
   });
 
   // ---- Denetim kaydı ----

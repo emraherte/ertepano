@@ -1,19 +1,70 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { CATEGORY_COLORS, CATEGORY_LABELS, KIND_LABELS, ROLE_CATEGORIES, type Category, type Kind } from '@ertepano/shared';
+import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import {
+  ArrowLeft,
+  BarChart3,
+  CalendarClock,
+  CheckCheck,
+  Clock,
+  FilePlus2,
+  HardHat,
+  ImagePlus,
+  LayoutTemplate,
+  type LucideIcon,
+  Megaphone,
+  MessageSquare,
+  MonitorSmartphone,
+  PanelTop,
+  Plus,
+  Rocket,
+  Save,
+  ShieldCheck,
+  Sticker,
+  Timer,
+  Trash2,
+  Tv,
+  Users,
+  Volume2,
+  Zap,
+} from 'lucide-react';
+import { CATEGORY_LABELS, KIND_LABELS, ROLE_CATEGORIES, type Category, type Kind } from '@ertepano/shared';
 import { api, fromLocalInput, toLocalInput, uploadImage, useApi } from '../api';
 import type { Announcement, Template } from '../types';
 import { Preview } from '../components/Preview';
 import { TargetPicker } from '../components/TargetPicker';
-import { PageHead, useAuth, useToast } from '../ui';
+import {
+  Badge,
+  Button,
+  buttonClass,
+  CAT,
+  Callout,
+  Card,
+  Chip,
+  cn,
+  Field,
+  IconButton,
+  Input,
+  listItem,
+  PageHeader,
+  PageSkeleton,
+  Skeleton,
+  Switch,
+  Textarea,
+  useAuth,
+  useToast,
+} from '../ui';
 
-const EDIT_KINDS: { k: Kind; icon: string; hint: string }[] = [
-  { k: 'toast', icon: '🗨️', hint: 'Sağ altta kart; okudum butonu' },
-  { k: 'banner', icon: '➖', hint: 'Ekranın üstünde ince şerit' },
-  { k: 'survey', icon: '📊', hint: 'Tek soru, tek tıkla oy' },
-  { k: 'countdown', icon: '⏱️', hint: 'Bakım/etkinlik geri sayımı' },
-  { k: 'badge', icon: '🏷️', hint: 'Köşede görsel; tıklamayı engellemez' },
+const EDIT_KINDS: { k: Kind; icon: LucideIcon; hint: string }[] = [
+  { k: 'toast', icon: MessageSquare, hint: 'Sağ altta kart; okudum butonu' },
+  { k: 'banner', icon: PanelTop, hint: 'Ekranın üstünde ince şerit' },
+  { k: 'survey', icon: BarChart3, hint: 'Tek soru, tek tıkla oy' },
+  { k: 'countdown', icon: Timer, hint: 'Bakım/etkinlik geri sayımı' },
+  { k: 'badge', icon: Sticker, hint: 'Köşede görsel; tıklamayı engellemez' },
 ];
+const KIND_ICON = Object.fromEntries(EDIT_KINDS.map((x) => [x.k, x.icon])) as Record<Kind, LucideIcon>;
+
+const CAT_ICON: Record<Category, LucideIcon> = { ik: Users, isg: HardHat, it: ShieldCheck, genel: Megaphone };
 
 const END_PRESETS: [string, number | null][] = [
   ['Süresiz', null],
@@ -21,6 +72,13 @@ const END_PRESETS: [string, number | null][] = [
   ['Gün sonu', -1],
   ['3 gün', 72],
   ['1 hafta', 168],
+];
+
+const POSITIONS: [string, string][] = [
+  ['top-left', 'Sol üst'],
+  ['top-right', 'Sağ üst'],
+  ['bottom-left', 'Sol alt'],
+  ['bottom-right', 'Sağ alt'],
 ];
 
 interface Form {
@@ -53,6 +111,25 @@ const endOfDay = () => {
   return d.toISOString();
 };
 
+/** Numaralı form bölümü */
+function Section({ n, icon: Icon, title, description, children, delay }: { n: number; icon: LucideIcon; title: string; description?: string; children: ReactNode; delay?: number }) {
+  return (
+    <Card className="p-6 sm:p-8" delay={delay}>
+      <div className="mb-6 flex items-start gap-4">
+        <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-linear-to-br from-emerald-500/15 to-teal-500/10 text-emerald-600 ring-1 ring-inset ring-emerald-500/15 dark:text-emerald-300">
+          <Icon size={18} />
+          <span className="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-white text-[10px] font-bold text-slate-500 shadow ring-1 ring-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:ring-white/10">{n}</span>
+        </div>
+        <div>
+          <h2 className="text-[15px] font-semibold tracking-tight text-slate-900 dark:text-white">{title}</h2>
+          {description && <p className="mt-0.5 text-[13px] text-slate-500 dark:text-slate-400">{description}</p>}
+        </div>
+      </div>
+      {children}
+    </Card>
+  );
+}
+
 export function AnnouncementEditor() {
   const { id } = useParams();
   const { user } = useAuth();
@@ -63,7 +140,8 @@ export function AnnouncementEditor() {
   const existing = useApi<{ item: Announcement }>(id ? `/api/announcements/${id}` : null);
   const [form, setForm] = useState<Form | null>(null);
   const [schedule, setSchedule] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'draft' | 'publish' | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -95,40 +173,92 @@ export function AnnouncementEditor() {
     return [...m.entries()];
   }, [templates.data]);
 
-  // ---- 1. adım: şablon seçimi ----
+  // ---- 1. adım: şablon galerisi ----
   if (!id && !form) {
     return (
       <>
-        <PageHead title="Yeni duyuru" sub="Bir şablonla başlayın; köşeli parantezli [alanları] doldurmanız yeterli.">
-          <button className="btn" onClick={() => setForm(blank(allowed[0] ?? 'genel'))}>
-            Boş başla
-          </button>
-        </PageHead>
-        <div className="stack" style={{ gap: 22 }}>
-          {grouped.map(([cat, ts]) => (
-            <div key={cat}>
-              <h3 style={{ marginBottom: 10 }}>{CATEGORY_LABELS[cat]}</h3>
-              <div className="tpl-grid">
-                {ts.map((t) => (
-                  <button key={t.id} className="tpl" style={{ ['--c' as string]: CATEGORY_COLORS[t.category] }} onClick={() => applyTemplate(t)}>
-                    <span className="e">{t.emoji}</span>
-                    <span className="n">{t.name}</span>
-                    <span className="small muted">{KIND_LABELS[t.kind]}{t.requireAck ? ' · zorunlu onay' : ''}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+        <PageHeader
+          eyebrow={<><LayoutTemplate size={14} /> Adım 1 / 2</>}
+          title="Bir şablonla başlayın"
+          description="Hazır metni seçin; köşeli parantezli [alanları] doldurmanız yeterli. 30 saniyede ekranlarda."
+          actions={
+            <>
+              <Button variant="ghost" icon={ArrowLeft} to="/duyurular">Vazgeç</Button>
+              <Button icon={FilePlus2} onClick={() => setForm(blank(allowed[0] ?? 'genel'))}>Boş başla</Button>
+            </>
+          }
+        />
+        {!templates.data ? (
+          <div className="grid gap-6 md:grid-cols-2">
+            {[0, 1].map((i) => (
+              <Card key={i} className="p-6">
+                <Skeleton className="h-5 w-48" />
+                <div className="mt-6 grid grid-cols-2 gap-4">
+                  {[0, 1, 2, 3].map((j) => <Skeleton key={j} className="h-24 rounded-2xl" />)}
+                </div>
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 2xl:grid-cols-2">
+            {grouped.map(([cat, ts], gi) => {
+              const CI = CAT_ICON[cat];
+              return (
+                <Card key={cat} className={cn('relative overflow-hidden p-6 sm:p-8', grouped.length % 2 === 1 && gi === 0 && '2xl:col-span-2')} delay={gi * 0.06}>
+                  <div className={cn('pointer-events-none absolute -top-20 -right-16 h-56 w-56 rounded-full bg-linear-to-br opacity-15 blur-3xl', CAT[cat].grad)} />
+                  <div className="relative mb-6 flex items-center gap-3">
+                    <div className={cn('flex h-10 w-10 items-center justify-center rounded-xl bg-linear-to-br text-white shadow-lg', CAT[cat].grad)}>
+                      <CI size={18} />
+                    </div>
+                    <div>
+                      <h2 className="text-[16px] font-semibold tracking-tight text-slate-900 dark:text-white">{CATEGORY_LABELS[cat]}</h2>
+                      <p className="text-[12px] text-slate-400">{ts.length} şablon</p>
+                    </div>
+                  </div>
+                  <div className="relative grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {ts.map((t, i) => {
+                      const KI = KIND_ICON[t.kind] ?? MessageSquare;
+                      return (
+                        <motion.button
+                          key={t.id}
+                          type="button"
+                          variants={listItem}
+                          initial="hidden"
+                          animate="show"
+                          custom={i}
+                          onClick={() => applyTemplate(t)}
+                          className="group flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white/60 p-4 text-left transition-all duration-300 hover:-translate-y-1 hover:border-slate-300 hover:bg-white hover:shadow-xl hover:shadow-slate-900/10 active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/[0.07] dark:hover:shadow-black/40"
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className={cn('flex h-9 w-9 items-center justify-center rounded-xl text-lg', CAT[cat].soft)}>{t.emoji}</div>
+                            <KI size={15} className="text-slate-300 transition-colors group-hover:text-emerald-500 dark:text-slate-600" />
+                          </div>
+                          <div>
+                            <div className="text-[13.5px] font-semibold tracking-tight text-slate-900 dark:text-white">{t.name}</div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-slate-400">
+                              {KIND_LABELS[t.kind]}
+                              {t.requireAck && <Badge tone="info">onaylı</Badge>}
+                            </div>
+                          </div>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
       </>
     );
   }
-  if (!form) return null;
+  if (!form) return <PageSkeleton />;
 
   const placeholders = /\[[^\]]+\]/.test(form.title + form.body + form.options.join(''));
+  const isActive = existing.data?.item.status === 'active';
 
   const save = async (publish: boolean) => {
-    setBusy(true);
+    setBusy(publish ? 'publish' : 'draft');
     setError(null);
     const body = {
       kind: form.kind, category: form.category, title: form.title, body: form.body, emoji: form.emoji || null, imageUrl: form.imageUrl,
@@ -147,214 +277,251 @@ export function AnnouncementEditor() {
     } catch (e) {
       setError((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
 
   const onImage = async (f?: File) => {
     if (!f) return;
+    setUploading(true);
     try {
       set('imageUrl', await uploadImage(f));
     } catch (e) {
       toast((e as Error).message, true);
+    } finally {
+      setUploading(false);
     }
   };
 
-  const isActive = existing.data?.item.status === 'active';
+  const endPresetOn = (h: number | null) => h === null && !form.endsAt;
 
   return (
     <>
-      <PageHead title={id ? 'Duyuruyu düzenle' : 'Yeni duyuru'} sub={isActive ? 'Bu duyuru yayında; kaydettiğinizde ekranlardaki kopya güncellenir.' : undefined}>
-        {!id && (
-          <button className="btn btn-ghost" onClick={() => setForm(null)}>
-            ← Şablonlar
-          </button>
-        )}
-        <Link className="btn btn-ghost" to={id ? `/duyurular/${id}` : '/duyurular'}>
-          Vazgeç
-        </Link>
-      </PageHead>
+      <PageHeader
+        eyebrow={<><Megaphone size={14} /> {id ? 'Düzenleme' : 'Adım 2 / 2'}</>}
+        title={id ? 'Duyuruyu düzenle' : 'Yeni duyuru'}
+        description={isActive ? 'Bu duyuru yayında; kaydettiğinizde ekranlardaki kopya anında güncellenir.' : 'Sağdaki önizleme, çalışanın ekranında göreceği hâlidir.'}
+        actions={
+          <>
+            {!id && <Button variant="ghost" icon={LayoutTemplate} onClick={() => setForm(null)}>Şablonlar</Button>}
+            <Button variant="ghost" icon={ArrowLeft} to={id ? `/duyurular/${id}` : '/duyurular'}>Vazgeç</Button>
+          </>
+        }
+      />
 
-      <div className="grid" style={{ gridTemplateColumns: 'minmax(0, 1.15fr) minmax(0, 1fr)', alignItems: 'start' }}>
-        <div className="card card-pad stack" style={{ gap: 18 }}>
-          <div className="stack" style={{ gap: 8 }}>
-            <b>Kategori</b>
-            <div className="row">
-              {allowed.map((c) => (
-                <button key={c} type="button" className={`chip ${form.category === c ? 'on' : ''}`} onClick={() => set('category', c)}>
-                  <span className="cat" style={{ ['--c' as string]: CATEGORY_COLORS[c] }}>{CATEGORY_LABELS[c]}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="stack" style={{ gap: 8 }}>
-            <b>Ekranda nasıl görünsün?</b>
-            <div className="row">
-              {EDIT_KINDS.map(({ k, icon, hint }) => (
-                <button key={k} type="button" title={hint} className={`chip ${form.kind === k ? 'on' : ''}`} onClick={() => set('kind', k)}>
-                  {icon} {KIND_LABELS[k]}
-                </button>
-              ))}
-            </div>
-            <span className="small faint">{EDIT_KINDS.find((x) => x.k === form.kind)?.hint}</span>
-          </div>
-
-          <div className="row" style={{ alignItems: 'flex-end', flexWrap: 'nowrap' }}>
-            <label className="field" style={{ width: 80 }}>
-              Simge
-              <input value={form.emoji} onChange={(e) => set('emoji', e.target.value)} maxLength={8} style={{ textAlign: 'center', fontSize: 18 }} />
-            </label>
-            <label className="field" style={{ flex: 1 }}>
-              Başlık
-              <input value={form.title} onChange={(e) => set('title', e.target.value)} maxLength={140} placeholder="Kısa ve net bir başlık" />
-            </label>
-          </div>
-
-          {form.kind !== 'badge' && (
-            <label className="field">
-              {form.kind === 'survey' ? 'Açıklama (isteğe bağlı)' : 'Metin'}
-              <textarea value={form.body} onChange={(e) => set('body', e.target.value)} maxLength={2000} rows={form.kind === 'banner' ? 2 : 4} />
-              <span className="hint">{form.body.length}/2000</span>
-            </label>
-          )}
-
-          {form.kind === 'survey' && (
-            <div className="stack" style={{ gap: 6 }}>
-              <b>Seçenekler</b>
-              {form.options.map((o, i) => (
-                <div key={i} className="row" style={{ flexWrap: 'nowrap' }}>
-                  <input value={o} onChange={(e) => set('options', form.options.map((x, j) => (j === i ? e.target.value : x)))} placeholder={`Seçenek ${i + 1}`} />
-                  {form.options.length > 2 && (
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => set('options', form.options.filter((_, j) => j !== i))}>
-                      ✕
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_440px]">
+        <div className="space-y-6">
+          <Section n={1} icon={MonitorSmartphone} title="Kategori ve görünüm" description="Kimin adına ve ekranda nasıl çıkacak?">
+            <div className="space-y-6">
+              <div className="flex flex-wrap gap-2">
+                {allowed.map((c) => {
+                  const CI = CAT_ICON[c];
+                  return (
+                    <Chip key={c} on={form.category === c} onClick={() => set('category', c)}>
+                      <CI size={14} className={CAT[c].text} />
+                      {CATEGORY_LABELS[c]}
+                    </Chip>
+                  );
+                })}
+              </div>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                {EDIT_KINDS.map(({ k, icon: Icon, hint }) => {
+                  const on = form.kind === k;
+                  return (
+                    <button
+                      key={k}
+                      type="button"
+                      title={hint}
+                      onClick={() => set('kind', k)}
+                      className={cn(
+                        'relative flex flex-col items-start gap-2 rounded-2xl border p-4 text-left transition-all duration-300 hover:-translate-y-0.5 active:scale-[0.98]',
+                        on
+                          ? 'border-emerald-500/50 bg-emerald-500/[0.07] shadow-lg shadow-emerald-500/10'
+                          : 'border-slate-200/70 bg-white/50 hover:border-slate-300 hover:bg-white hover:shadow-md dark:border-white/10 dark:bg-white/[0.03] dark:hover:bg-white/[0.07]',
+                      )}
+                    >
+                      <Icon size={18} className={on ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'} />
+                      <span className={cn('text-[13px] font-semibold tracking-tight', on ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-700 dark:text-slate-300')}>{KIND_LABELS[k]}</span>
+                      {on && <motion.span layoutId="kind-dot" className="absolute top-3 right-3 h-2 w-2 rounded-full bg-emerald-500" />}
                     </button>
+                  );
+                })}
+              </div>
+              <p className="text-[13px] text-slate-500 dark:text-slate-400">{EDIT_KINDS.find((x) => x.k === form.kind)?.hint}</p>
+            </div>
+          </Section>
+
+          <Section n={2} icon={MessageSquare} title="İçerik" description="Kısa başlık, net mesaj." delay={0.05}>
+            <div className="space-y-5">
+              <div className="grid grid-cols-[84px_1fr] gap-4">
+                <Field label="Simge">
+                  <Input value={form.emoji} onChange={(e) => set('emoji', e.target.value)} maxLength={8} className="text-center text-xl" />
+                </Field>
+                <Field label="Başlık" hint={`${form.title.length}/140`}>
+                  <Input value={form.title} onChange={(e) => set('title', e.target.value)} maxLength={140} placeholder="Kısa ve net bir başlık" />
+                </Field>
+              </div>
+
+              {form.kind !== 'badge' && (
+                <Field label={form.kind === 'survey' ? 'Açıklama (isteğe bağlı)' : 'Metin'} hint={`${form.body.length}/2000`}>
+                  <Textarea value={form.body} onChange={(e) => set('body', e.target.value)} maxLength={2000} rows={form.kind === 'banner' ? 2 : 4} />
+                </Field>
+              )}
+
+              {form.kind === 'survey' && (
+                <div className="space-y-3">
+                  <div className="text-[13px] font-medium text-slate-700 dark:text-slate-300">Seçenekler</div>
+                  {form.options.map((o, i) => (
+                    <motion.div key={i} initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }} className="flex items-center gap-2">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-900/[0.04] text-[13px] font-semibold text-slate-400 dark:bg-white/5">{i + 1}</span>
+                      <Input value={o} onChange={(e) => set('options', form.options.map((x, j) => (j === i ? e.target.value : x)))} placeholder={`Seçenek ${i + 1}`} className="flex-1" />
+                      {form.options.length > 2 && <IconButton icon={Trash2} label="Seçeneği sil" onClick={() => set('options', form.options.filter((_, j) => j !== i))} />}
+                    </motion.div>
+                  ))}
+                  {form.options.length < 6 && (
+                    <Button size="sm" variant="subtle" icon={Plus} onClick={() => set('options', [...form.options, ''])}>
+                      Seçenek ekle
+                    </Button>
+                  )}
+                  <p className="text-[12px] text-slate-400">Yanıtlar panelde kişi adı olmadan, toplu sayı olarak gösterilir.</p>
+                </div>
+              )}
+
+              {form.kind === 'countdown' && (
+                <Field label="Geri sayım hedefi">
+                  <Input type="datetime-local" value={toLocalInput(form.countdownTo)} onChange={(e) => set('countdownTo', fromLocalInput(e.target.value))} />
+                </Field>
+              )}
+
+              {form.kind === 'badge' && (
+                <div>
+                  <div className="mb-2 text-[13px] font-medium text-slate-700 dark:text-slate-300">Rozet konumu</div>
+                  <div className="grid w-fit grid-cols-2 gap-2">
+                    {POSITIONS.map(([v, l]) => (
+                      <Chip key={v} on={form.position === v} onClick={() => set('position', v)}>
+                        {l}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {form.kind !== 'banner' && form.kind !== 'countdown' && (
+                <div className="flex flex-wrap items-center gap-3">
+                  {form.imageUrl && (
+                    <div className="relative">
+                      <img src={form.imageUrl} alt="" className="h-16 w-16 rounded-xl object-cover ring-1 ring-slate-200 dark:ring-white/10" />
+                    </div>
+                  )}
+                  <label className={buttonClass('secondary', 'sm', 'cursor-pointer')}>
+                    <ImagePlus size={14} />
+                    {uploading ? 'Yükleniyor…' : form.imageUrl ? 'Görseli değiştir' : 'Görsel ekle'}
+                    <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => onImage(e.target.files?.[0])} />
+                  </label>
+                  {form.imageUrl && (
+                    <Button size="sm" variant="ghost" icon={Trash2} onClick={() => set('imageUrl', null)}>
+                      Kaldır
+                    </Button>
+                  )}
+                  <span className="text-[12px] text-slate-400">PNG/JPG/GIF/WEBP, en fazla 5 MB</span>
+                </div>
+              )}
+
+              {form.kind === 'toast' && (
+                <div className="space-y-3 rounded-2xl border border-slate-200/60 bg-slate-900/[0.02] p-4 dark:border-white/10 dark:bg-white/[0.02]">
+                  <Switch
+                    checked={form.requireAck}
+                    onChange={(v) => set('requireAck', v)}
+                    label={<span className="flex items-center gap-2"><CheckCheck size={15} className="text-emerald-500" /> Zorunlu okuma onayı</span>}
+                    description="Kim, ne zaman onayladı kaydedilir — denetim kanıtı."
+                  />
+                  {form.requireAck && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                      <Input value={form.ackLabel} onChange={(e) => set('ackLabel', e.target.value)} placeholder="Buton metni: Okudum, anladım" maxLength={40} />
+                    </motion.div>
                   )}
                 </div>
-              ))}
-              {form.options.length < 6 && (
-                <button type="button" className="btn btn-sm" style={{ alignSelf: 'flex-start' }} onClick={() => set('options', [...form.options, ''])}>
-                  ＋ Seçenek
-                </button>
-              )}
-              <span className="small faint">Yanıtlar panelde kişi adı olmadan, toplu sayı olarak gösterilir.</span>
-            </div>
-          )}
-
-          {form.kind === 'countdown' && (
-            <label className="field">
-              Geri sayım hedefi
-              <input type="datetime-local" value={toLocalInput(form.countdownTo)} onChange={(e) => set('countdownTo', fromLocalInput(e.target.value))} />
-            </label>
-          )}
-
-          {form.kind === 'badge' && (
-            <label className="field">
-              Rozet konumu
-              <select value={form.position} onChange={(e) => set('position', e.target.value)}>
-                <option value="top-right">Sağ üst</option>
-                <option value="top-left">Sol üst</option>
-                <option value="bottom-right">Sağ alt</option>
-                <option value="bottom-left">Sol alt</option>
-              </select>
-            </label>
-          )}
-
-          {form.kind !== 'banner' && form.kind !== 'countdown' && (
-            <div className="row">
-              <label className="btn btn-sm">
-                🖼️ {form.imageUrl ? 'Görseli değiştir' : 'Görsel ekle'}
-                <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => onImage(e.target.files?.[0])} />
-              </label>
-              {form.imageUrl && (
-                <button type="button" className="btn btn-ghost btn-sm" onClick={() => set('imageUrl', null)}>
-                  Görseli kaldır
-                </button>
-              )}
-              <span className="small faint">PNG/JPG/GIF/WEBP, en fazla 5 MB</span>
-            </div>
-          )}
-
-          {form.kind === 'toast' && (
-            <div className="stack" style={{ gap: 8 }}>
-              <label className="check">
-                <input type="checkbox" checked={form.requireAck} onChange={(e) => set('requireAck', e.target.checked)} />
-                Zorunlu okuma onayı iste <span className="faint small">(kim, ne zaman onayladı kaydedilir — denetim kanıtı)</span>
-              </label>
-              {form.requireAck && (
-                <input value={form.ackLabel} onChange={(e) => set('ackLabel', e.target.value)} placeholder="Buton metni: Okudum, anladım" maxLength={40} />
               )}
             </div>
-          )}
+          </Section>
 
-          <div className="stack" style={{ gap: 8 }}>
-            <b>Kime?</b>
+          <Section n={3} icon={Users} title="Hedef" description="Kimin ekranına gidecek?" delay={0.1}>
             <TargetPicker value={form.targets} onChange={(v) => set('targets', v)} />
-          </div>
+          </Section>
 
-          <div className="stack" style={{ gap: 8 }}>
-            <b>Ne zaman?</b>
-            <div className="row">
-              <button type="button" className={`chip ${!schedule ? 'on' : ''}`} onClick={() => setSchedule(false)}>
-                ⚡ Hemen
-              </button>
-              <button type="button" className={`chip ${schedule ? 'on' : ''}`} onClick={() => setSchedule(true)}>
-                🗓️ İleri tarihte
-              </button>
-              {schedule && (
-                <input type="datetime-local" style={{ width: 220 }} value={toLocalInput(form.startsAt)} onChange={(e) => set('startsAt', fromLocalInput(e.target.value))} />
-              )}
+          <Section n={4} icon={CalendarClock} title="Zamanlama" description="Ne zaman başlasın, ne kadar kalsın?" delay={0.15}>
+            <div className="space-y-6">
+              <div className="flex flex-wrap items-center gap-2">
+                <Chip on={!schedule} icon={Zap} onClick={() => setSchedule(false)}>Hemen</Chip>
+                <Chip on={schedule} icon={CalendarClock} onClick={() => setSchedule(true)}>İleri tarihte</Chip>
+                {schedule && (
+                  <motion.div initial={{ opacity: 0, x: -6 }} animate={{ opacity: 1, x: 0 }}>
+                    <Input type="datetime-local" className="w-56" value={toLocalInput(form.startsAt)} onChange={(e) => set('startsAt', fromLocalInput(e.target.value))} />
+                  </motion.div>
+                )}
+              </div>
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-[13px] font-medium text-slate-700 dark:text-slate-300">
+                  <Clock size={14} className="text-slate-400" /> Ekranda kalma süresi
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  {END_PRESETS.map(([label, h]) => (
+                    <Chip
+                      key={label}
+                      on={endPresetOn(h)}
+                      onClick={() => {
+                        const base = schedule && form.startsAt ? Date.parse(form.startsAt) : Date.now();
+                        set('endsAt', h === null ? null : h === -1 ? endOfDay() : new Date(base + h * 3600_000).toISOString());
+                      }}
+                    >
+                      {label}
+                    </Chip>
+                  ))}
+                  <Input type="datetime-local" className="w-56" value={toLocalInput(form.endsAt)} onChange={(e) => set('endsAt', fromLocalInput(e.target.value))} />
+                </div>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Switch checked={form.showOnKiosk} onChange={(v) => set('showOnKiosk', v)} label={<span className="flex items-center gap-2"><Tv size={15} className="text-slate-400" /> Kiosk/TV ekranlarında</span>} description="Fabrika ve yemekhane ekranlarında da dönsün" />
+                <Switch checked={form.sound} onChange={(v) => set('sound', v)} label={<span className="flex items-center gap-2"><Volume2 size={15} className="text-slate-400" /> Sesli uyarı</span>} description="Gösterilirken kısa bir ses çalar" />
+              </div>
             </div>
-            <div className="row small">
-              <span className="muted">Ekranda kalma süresi:</span>
-              {END_PRESETS.map(([label, h]) => (
-                <button
-                  key={label}
-                  type="button"
-                  className={`chip ${(h === null && !form.endsAt) ? 'on' : ''}`}
-                  style={{ padding: '3px 10px' }}
-                  onClick={() => {
-                    const base = schedule && form.startsAt ? Date.parse(form.startsAt) : Date.now();
-                    set('endsAt', h === null ? null : h === -1 ? endOfDay() : new Date(base + h * 3600_000).toISOString());
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-              <input type="datetime-local" style={{ width: 200 }} value={toLocalInput(form.endsAt)} onChange={(e) => set('endsAt', fromLocalInput(e.target.value))} />
+          </Section>
+
+          {(placeholders || error) && (
+            <div className="space-y-3">
+              {placeholders && <Callout tone="warning" title="Doldurulmamış alan var">Metinde [köşeli parantez] içinde kalan yerler var.</Callout>}
+              {error && <Callout tone="danger">{error}</Callout>}
             </div>
-          </div>
+          )}
 
-          <div className="row">
-            <label className="check">
-              <input type="checkbox" checked={form.showOnKiosk} onChange={(e) => set('showOnKiosk', e.target.checked)} /> Kiosk/TV ekranlarında da göster
-            </label>
-            <label className="check">
-              <input type="checkbox" checked={form.sound} onChange={(e) => set('sound', e.target.checked)} /> Sesli uyarı
-            </label>
-          </div>
-
-          {placeholders && <div className="alert alert-warn">Metinde doldurulmamış [köşeli parantez] alanları var.</div>}
-          {error && <div className="alert alert-danger">{error}</div>}
-
-          <div className="row" style={{ justifyContent: 'flex-end' }}>
+          <Card className="flex flex-wrap items-center justify-end gap-3 p-4 sm:p-5" delay={0.2}>
+            <span className="mr-auto pl-2 text-[13px] text-slate-500 dark:text-slate-400">
+              {schedule && form.startsAt ? 'Seçilen zamanda otomatik yayınlanır.' : 'Yayınla dediğinizde saniyeler içinde ekranlarda.'}
+            </span>
             {(!id || existing.data?.item.status === 'draft') && (
-              <button className="btn" disabled={busy || !form.title.trim()} onClick={() => save(false)}>
+              <Button icon={Save} loading={busy === 'draft'} disabled={!!busy || !form.title.trim()} onClick={() => save(false)}>
                 Taslak kaydet
-              </button>
+              </Button>
             )}
-            <button className="btn btn-primary btn-lg" disabled={busy || !form.title.trim()} onClick={() => save(true)}>
-              {isActive ? 'Kaydet ve güncelle' : schedule ? '🗓️ Planla' : '🚀 Yayınla'}
-            </button>
-          </div>
+            <Button variant="primary" size="lg" icon={schedule ? CalendarClock : Rocket} loading={busy === 'publish'} disabled={!!busy || !form.title.trim()} onClick={() => save(true)}>
+              {isActive ? 'Kaydet ve güncelle' : schedule ? 'Planla' : 'Yayınla'}
+            </Button>
+          </Card>
         </div>
 
-        <div className="stack" style={{ position: 'sticky', top: 20 }}>
-          <b>Önizleme</b>
-          <Preview d={{ ...form, emoji: form.emoji }} />
-          <p className="small faint">
-            Kart ve anketler tam ekran sunum/oyun sırasında beklemeye alınır, sunum bitince gösterilir. Rozet tıklamaları engellemez.
-          </p>
+        <div className="xl:sticky xl:top-24">
+          <Card className="p-6" delay={0.1}>
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-[13px] font-semibold tracking-tight text-slate-900 dark:text-white">
+                <MonitorSmartphone size={16} className="text-emerald-500" /> Canlı önizleme
+              </div>
+              <Badge tone="success" dot>{KIND_LABELS[form.kind]}</Badge>
+            </div>
+            <Preview d={{ ...form, emoji: form.emoji }} />
+            <p className="mt-5 text-[12px] leading-relaxed text-slate-400">
+              Kart ve anketler tam ekran sunum/oyun sırasında beklemeye alınır, sunum bitince gösterilir. Rozet tıklamaları engellemez.
+            </p>
+          </Card>
         </div>
       </div>
     </>

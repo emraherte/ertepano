@@ -197,6 +197,12 @@ const MIGRATIONS: string[] = [
   );
   CREATE TRIGGER audit_no_update BEFORE UPDATE ON audit_log BEGIN SELECT RAISE(ABORT, 'audit_log salt eklenir'); END;
   `,
+  // 2: Active Directory kullanıcıları
+  `
+  ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local';
+  ALTER TABLE users ADD COLUMN email TEXT;
+  ALTER TABLE users ADD COLUMN ldap_dn TEXT;
+  `,
 ];
 
 function migrate() {

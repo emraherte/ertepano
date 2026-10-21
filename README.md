@@ -12,7 +12,7 @@ KVKK sınırları içinde **IT envanteri** toplar. ErtePals'ın şeffaf/click-th
 | Yol | Ne |
 |---|---|
 | `server` | Node 20 + Fastify + SQLite (WAL). REST `/api/*`, ajan WebSocket'i `/ws/agent`, Ed25519 imza, zamanlayıcı (özel gün, kutlama, KVKK temizliği) |
-| `apps/panel` | React + Vite web paneli (İK / İSG / IT / yönetici rolleri) + `/kiosk` TV ekranı |
+| `apps/panel` | React + Vite + Tailwind CSS v4 + Framer Motion + Lucide web paneli (açık/koyu tema, ⌘K komut paleti) + `/kiosk` TV ekranı |
 | `apps/agent` | Windows ajanı: Tauri v2 + Rust, paketleyicisiz HTML arayüz ([README](apps/agent/README.md)) |
 | `packages/shared` | Ortak tipler ve sabitler |
 | `tools/sim` | Sahte ajan simülatörü (ajanı derlemeden uçtan uca deneme) |
@@ -35,6 +35,8 @@ reverse proxy (IIS/nginx/Caddy) koyun ve `SECURE_COOKIES=true`, `PUBLIC_URL=http
 
 ### Ortam değişkenleri
 
+Depo kökünde `.env` dosyası varsa otomatik okunur (örnek: [.env.example](.env.example)).
+
 | Değişken | Varsayılan | |
 |---|---|---|
 | `PORT` | 4100 | |
@@ -44,6 +46,17 @@ reverse proxy (IIS/nginx/Caddy) koyun ve `SECURE_COOKIES=true`, `PUBLIC_URL=http
 | `TZ_NAME` | Europe/Istanbul | Özel gün/kutlama günü hesabı |
 | `RETENTION_TELEMETRY_DAYS` / `RETENTION_DELIVERY_DAYS` / `RETENTION_COMPLIANCE_DAYS` | 30 / 365 / 730 | KVKK saklama süreleri |
 | `ADMIN_PASSWORD` | rastgele | İlk yönetici parolası (yalnız ilk açılışta) |
+
+## Active Directory (LDAP) girişi
+
+`.env` içinde `LDAP_URL` ve `LDAP_BASE_DN` verildiğinde açılır. Çalışanlar Windows kullanıcı adıyla (`ad.soyad`, `SIRKET\ad.soyad` veya
+`ad.soyad@sirket.local`) girer; panel hesabı ilk girişte otomatik oluşur ve **rolü her girişte AD grubundan** yeniden hesaplanır
+(`LDAP_GROUP_ADMIN / IT / ISG / IK / VIEWER`; birden fazla gruptaysa en yetkili rol). Grup DN'i verilirse iç içe gruplar da çözülür.
+
+- Servis hesabıyla arama → kullanıcının kendi parolasıyla bağlanma; boş parola ve devre dışı AD hesabı reddedilir, filtre girdisi kaçışlanır.
+- **Yerel hesaplar her zaman çalışır** (ör. `admin`): AD'ye ulaşılamazsa yönetici yine girebilir.
+- Panel → **Sistem & LDAP**: yapılandırma özeti, bağlantı testi, rol gruplarının varlığı ve bir kullanıcının hangi rolle gireceği.
+- AD kullanıcısının rolü/parolası panelden değiştirilemez; yalnızca erişimi kapatılabilir.
 
 ## Kim ne yapar?
 
@@ -63,4 +76,4 @@ Ajan ekran görüntüsü, pencere başlığı, klavye/fare, tarayıcı geçmişi
 
 ## Bilinen eksikler (sıradaki adımlar)
 
-AD/LDAP girişi, Windows Service ayrımı, mTLS, imzalı otomatik güncelleme, PostgreSQL seçeneği, tatbikat tutanağı PDF — bkz. şartname §7.
+Windows Service ayrımı, mTLS, imzalı otomatik güncelleme, PostgreSQL seçeneği, tatbikat tutanağı PDF — bkz. şartname §7.
