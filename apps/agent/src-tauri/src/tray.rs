@@ -6,26 +6,21 @@ use tauri::AppHandle;
 
 const TRAY_ID: &str = "main";
 
-pub fn build(app: &AppHandle) -> tauri::Result<()> {
+/// `allow_quit`: hizmet tarafından başlatıldıysa "Çıkış" gösterilmez (hizmet zaten yeniden açar).
+pub fn build(app: &AppHandle, allow_quit: bool) -> tauri::Result<()> {
     let status = MenuItem::with_id(app, "status", "Durum: Başlatılıyor…", false, None::<&str>)?;
     let list = MenuItem::with_id(app, "list", "Duyurularım", true, None::<&str>)?;
     let it = MenuItem::with_id(app, "report-it", "IT'ye bildir…", true, None::<&str>)?;
     let nm = MenuItem::with_id(app, "report-nm", "Ramak kala bildir…", true, None::<&str>)?;
     let about = MenuItem::with_id(app, "about", "Bu yazılım ne topluyor?", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Çıkış", true, None::<&str>)?;
-    let menu = Menu::with_items(
-        app,
-        &[
-            &status,
-            &PredefinedMenuItem::separator(app)?,
-            &list,
-            &it,
-            &nm,
-            &PredefinedMenuItem::separator(app)?,
-            &about,
-            &quit,
-        ],
-    )?;
+    let sep1 = PredefinedMenuItem::separator(app)?;
+    let sep2 = PredefinedMenuItem::separator(app)?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&status, &sep1, &list, &it, &nm, &sep2, &about];
+    if allow_quit {
+        items.push(&quit);
+    }
+    let menu = Menu::with_items(app, &items)?;
     let _ = agent(app).status_item.set(status);
 
     let mut b = TrayIconBuilder::with_id(TRAY_ID)

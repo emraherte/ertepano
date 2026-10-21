@@ -1,11 +1,7 @@
 //! Cihaz durumu (docs/PROTOKOL.md §3 Telemetry). Yalnızca envanter alanları — ekran, pencere, klavye, dosya YOK.
-use crate::agent::{lock, Agent, VERSION};
+use crate::VERSION;
 use serde_json::{json, Value};
 use sysinfo::{Disks, System};
-
-pub fn user() -> String {
-    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default()
-}
 
 pub fn hostname() -> String {
     System::host_name().unwrap_or_else(|| std::env::var("COMPUTERNAME").unwrap_or_default())
@@ -29,18 +25,23 @@ pub fn os() -> String {
 
 /// Kayıt için kimlik: (hostname, mac, os, user)
 pub fn identity() -> (String, String, String, String) {
-    (hostname(), mac(), os(), user())
+    (hostname(), mac(), os(), crate::sys::current_user())
 }
 
-pub fn collect(ag: &Agent) -> Value {
-    let mut sys = lock(&ag.sys);
+pub fn new_system() -> System {
+    let mut sys = System::new();
+    sys.refresh_cpu_all();
+    sys.refresh_memory();
+    sys
+}
+
+pub fn collect(sys: &mut System) -> Value {
     sys.refresh_cpu_usage();
     sys.refresh_memory();
     let cpu_model = sys.cpus().first().map(|c| c.brand().trim().to_string()).unwrap_or_default();
     let cpu_load = sys.global_cpu_usage();
     let ram_total = sys.total_memory() / (1024 * 1024);
     let ram_free = sys.available_memory() / (1024 * 1024);
-    drop(sys);
 
     let disks = Disks::new_with_refreshed_list();
     let sys_drive = std::env::var("SystemDrive").unwrap_or_else(|_| "C:".into());
@@ -56,7 +57,7 @@ pub fn collect(ag: &Agent) -> Value {
         "hostname": hostname(),
         "ip": ip(),
         "mac": mac(),
-        "user": user(),
+        "user": crate::sys::current_user(),
         "os": os(),
         "cpuModel": cpu_model,
         "cpuLoad": (cpu_load as f64 * 10.0).round() / 10.0,

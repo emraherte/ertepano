@@ -1,7 +1,8 @@
 //! Gösterim motoru: aktif duyurulardan hangi pencerelerin açık olması gerektiğini hesaplar ve uygular
 //! (docs/PROTOKOL.md §5). ErtePals sahne mantığı: şeffaf, kenarlıksız, odak çalmayan, gerektiğinde click-through.
 use crate::agent::{agent, lock, Inner};
-use crate::model::{parse_time, Announcement};
+use ertepano_core::log::log;
+use ertepano_core::model::{parse_time, Announcement};
 use crate::win::{self, MonitorRaw, PhysRect};
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
@@ -14,7 +15,12 @@ pub const BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartSc
 
 const TOAST_W: f64 = 380.0;
 const BANNER_H: f64 = 64.0;
-const BADGE_SIZE: f64 = 140.0;
+/// Rozet boyutu (mantıksal px) — yükte "size" yoksa
+const BADGE_SIZE: f64 = 160.0;
+const BADGE_MIN: f64 = 64.0;
+const BADGE_MAX: f64 = 480.0;
+/// Aynı anda en fazla bu kadar rozet (ör. 29 Ekim bayrağı + şirket logosu)
+const BADGE_MAX_COUNT: usize = 4;
 const MARGIN: f64 = 12.0;
 /// Onay gerektirmeyen kart / anket bu süre sonra kendiliğinden kapanır.
 const TOAST_AUTOHIDE: Duration = Duration::from_secs(60);
@@ -54,7 +60,7 @@ fn tick(app: &AppHandle, reassert: bool) {
     let ag = agent(app);
     let dnd = win::fullscreen_app();
     let mons = win::monitors();
-    let (wants, queued) = {
+    let (wants, new_seen) = {
         let mut g = lock(&ag.inner);
         let wants = plan(&mut g, dnd, &mons);
         // ilk kez ekrana gelen duyurular için "seen"
@@ -64,14 +70,10 @@ fn tick(app: &AppHandle, reassert: bool) {
                 new_seen.push(w.item_id.clone());
             }
         }
-        let queued = !new_seen.is_empty();
-        for id in new_seen {
-            g.queue(json!({ "t": "ack", "id": id, "action": "seen" }));
-        }
-        (wants, queued)
+        (wants, new_seen)
     };
-    if queued {
-        ag.notify.notify_one();
+    for id in new_seen {
+        ag.send(json!({ "t": "ack", "id": id, "action": "seen" }));
     }
     apply(app, wants);
     badge_hover(app);
@@ -193,29 +195,60 @@ fn plan(g: &mut Inner, dnd: bool, mons: &[MonitorRaw]) -> Vec<Want> {
         }
     }
 
-    // 4) Rozet: köşede, click-through; tam ekran uygulama varken gizli
+    // 4) Rozetler: click-through; tam ekran uygulama varken gizli. Konum/boyut/opaklık yükten gelir.
     if !dnd {
-        if let Some(a) = active.iter().find(|a| a.kind == "badge") {
-            let (sz, m) = (px(BADGE_SIZE), px(MARGIN));
-            let top = if strip_or_banner(&wants) { px(BANNER_H) } else { 0 };
-            let (x, y) = match a.position.as_deref().unwrap_or("top-right") {
-                "top-left" => (work.x + m, work.y + m + top),
-                "bottom-left" => (work.x + m, work.y + work.h - sz - m),
-                "bottom-right" => (work.x + work.w - sz - m, work.y + work.h - sz - m - toast_height(&wants)),
-                _ => (work.x + work.w - sz - m, work.y + m + top),
-            };
+        let top = if strip_or_banner(&wants) { px(BANNER_H) } else { 0 };
+        let bottom = toast_height(&wants);
+        let badges: Vec<&Announcement> = active.iter().filter(|a| a.kind == "badge").take(BADGE_MAX_COUNT).collect();
+        for (i, a) in badges.into_iter().enumerate() {
+            let sz = px(a.size.filter(|v| v.is_finite()).unwrap_or(BADGE_SIZE).clamp(BADGE_MIN, BADGE_MAX));
+            let rect = badge_rect(a, work, sz, px(MARGIN), top, bottom);
+            let opacity = a.opacity.filter(|v| v.is_finite()).unwrap_or(1.0).clamp(0.2, 1.0);
             wants.push(Want {
-                label: "badge".into(),
+                label: format!("badge-{i}"),
                 page: "badge.html",
-                rect: PhysRect { x, y, w: sz, h: sz },
+                rect,
                 scale: s,
                 kind: Kind::Badge,
-                view: json!({ "item": a }),
+                view: json!({ "item": a, "opacity": opacity }),
                 item_id: a.id.clone(),
             });
         }
     }
     wants
+}
+
+/// Hazır konumlar → rozet merkezinin çalışma alanındaki yüzdesi (panel ile aynı tablo: packages/shared BADGE_POSITIONS).
+fn preset_center(pos: &str) -> (f64, f64) {
+    match pos {
+        "top-left" => (7.0, 10.0),
+        "top-center" => (50.0, 10.0),
+        "middle-left" => (7.0, 50.0),
+        "center" => (50.0, 50.0),
+        "middle-right" => (93.0, 50.0),
+        "bottom-left" => (7.0, 86.0),
+        "bottom-center" => (50.0, 86.0),
+        "bottom-right" => (93.0, 86.0),
+        _ => (93.0, 10.0), // top-right (varsayılan)
+    }
+}
+
+/// Rozet penceresi: merkez = posX/posY (yoksa hazır konum); kenardan taşmaz, üst şeridin ve kartın üstüne binmez.
+fn badge_rect(a: &Announcement, work: &PhysRect, sz: i32, margin: i32, top: i32, bottom: i32) -> PhysRect {
+    let (dx, dy) = preset_center(a.position.as_deref().unwrap_or("top-right"));
+    let fx = a.pos_x.filter(|v| v.is_finite()).unwrap_or(dx).clamp(0.0, 100.0) / 100.0;
+    let fy = a.pos_y.filter(|v| v.is_finite()).unwrap_or(dy).clamp(0.0, 100.0) / 100.0;
+    let cx = work.x as f64 + fx * work.w as f64;
+    let cy = work.y as f64 + fy * work.h as f64;
+    let (min_x, max_x) = (work.x + margin, work.x + work.w - sz - margin);
+    let (min_y, mut max_y) = (work.y + margin + top, work.y + work.h - sz - margin);
+    // sağ alttaki kartla çakışmasın
+    if fx > 0.6 && fy > 0.6 {
+        max_y -= bottom;
+    }
+    let x = ((cx - sz as f64 / 2.0).round() as i32).clamp(min_x, max_x.max(min_x));
+    let y = ((cy - sz as f64 / 2.0).round() as i32).clamp(min_y, max_y.max(min_y));
+    PhysRect { x, y, w: sz, h: sz }
 }
 
 fn strip_or_banner(wants: &[Want]) -> bool {
@@ -266,7 +299,7 @@ fn apply(app: &AppHandle, wants: Vec<Want>) {
                     lock(&ag.inner).open.insert(w.label.clone(), (hwnd, w.rect.clone()));
                 }
                 Err(e) => {
-                    crate::log::log(&format!("{} penceresi açılamadı: {e}", w.label));
+                    log(&format!("{} penceresi açılamadı: {e}", w.label));
                     lock(&ag.inner).views.remove(&w.label);
                 }
             },
@@ -325,29 +358,30 @@ fn create(app: &AppHandle, w: &Want) -> Result<isize, String> {
         }
     }
     win::assert_topmost(hwnd);
-    crate::log::log(&format!("{} açıldı ({:?})", w.label, w.rect));
+    log(&format!("{} açıldı ({:?})", w.label, w.rect));
     Ok(hwnd)
 }
 
 /// Rozet click-through olduğundan fare olayı almaz: imleç üzerindeyse sayfaya "hover" bildirilir (soluklaşır).
 fn badge_hover(app: &AppHandle) {
     let ag = agent(app);
-    let changed = {
+    let cursor = win::cursor_pos();
+    let changed: Vec<(String, bool)> = {
         let mut g = lock(&ag.inner);
-        let Some((_, rect)) = g.open.get("badge").cloned() else {
-            g.badge_hover = false;
-            return;
-        };
-        let over = win::cursor_pos().is_some_and(|(x, y)| rect.contains(x, y));
-        if over != g.badge_hover {
-            g.badge_hover = over;
-            Some(over)
-        } else {
-            None
+        let badges: Vec<(String, PhysRect)> = g.open.iter().filter(|(l, _)| l.starts_with("badge-")).map(|(l, (_, r))| (l.clone(), r.clone())).collect();
+        g.hover.retain(|l, _| badges.iter().any(|(b, _)| b == l));
+        let mut out = vec![];
+        for (label, rect) in badges {
+            let over = cursor.is_some_and(|(x, y)| rect.contains(x, y));
+            if g.hover.get(&label).copied().unwrap_or(false) != over {
+                g.hover.insert(label.clone(), over);
+                out.push((label, over));
+            }
         }
+        out
     };
-    if let Some(over) = changed {
-        let _ = app.emit_to("badge", "hover", json!({ "label": "badge", "hover": over }));
+    for (label, over) in changed {
+        let _ = app.emit_to(label.as_str(), "hover", json!({ "label": label, "hover": over }));
     }
 }
 
@@ -380,7 +414,7 @@ pub fn open_aux(app: &AppHandle, which: &str) {
             .additional_browser_args(BROWSER_ARGS)
             .build();
         if let Err(e) = res {
-            crate::log::log(&format!("{which} açılamadı: {e}"));
+            log(&format!("{which} açılamadı: {e}"));
         }
     });
 }

@@ -1,0 +1,34 @@
+[package]
+name = "ertepano-service"
+description = "ErtePano Ajan Windows hizmeti: sunucu bağlantısı, telemetri, oturumlarda arayüzü başlatma"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "ertepano-service"
+path = "src/main.rs"
+
+[dependencies]
+ertepano_core = { path = "../core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util", "signal"] }
+sysinfo = "0.33"
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "0.8"
+windows = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Environment",
+  "Win32_System_Pipes",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_Threading",
+] }
+
+[build-dependencies]

@@ -192,6 +192,9 @@ export async function agentRoutes(app: FastifyInstance) {
         os: z.string().max(128).default(''),
         agentVersion: z.string().max(32).default(''),
         user: z.string().max(128).default(''),
+        // GPO (ErtePano.admx) ile OU başına verilebilen öneri; kayıt anahtarının varsayılanı varsa o kazanır
+        location: z.string().trim().max(80).optional(),
+        department: z.string().trim().max(80).optional(),
       })
       .parse(req.body);
     const key = db.prepare('SELECT * FROM enroll_keys WHERE key = ? AND revoked = 0').get(body.enrollKey.trim().toUpperCase()) as
@@ -201,6 +204,8 @@ export async function agentRoutes(app: FastifyInstance) {
       audit(null, 'enroll_rejected', 'device', null, { hostname: body.hostname }, req.ip);
       return reply.code(403).send({ error: 'Geçersiz kayıt anahtarı' });
     }
+    const location = key.default_location || body.location || null;
+    const department = key.default_department || body.department || null;
     const secret = randomToken();
     const now = nowIso();
     const existing = db.prepare('SELECT id, status FROM devices WHERE hostname = ? AND mac = ?').get(body.hostname, body.mac) as
@@ -215,6 +220,8 @@ export async function agentRoutes(app: FastifyInstance) {
       db.prepare('UPDATE devices SET secret_hash = ?, os = ?, agent_version = ?, last_user = ?, ip = ?, last_seen = ? WHERE id = ?').run(
         sha256(secret), body.os, body.agentVersion, body.user || null, req.ip, now, deviceId,
       );
+      // IT'nin panelde verdiği etiketi ezme; yalnızca boşsa doldur
+      db.prepare('UPDATE devices SET location = COALESCE(location, ?), department = COALESCE(department, ?) WHERE id = ?').run(location, department, deviceId);
     } else {
       deviceId = uuid();
       status = key.auto_approve ? 'approved' : 'pending';
@@ -222,7 +229,7 @@ export async function agentRoutes(app: FastifyInstance) {
         `INSERT INTO devices(id, secret_hash, hostname, mac, ip, os, agent_version, last_user, location, department, status, first_seen, last_seen)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       ).run(deviceId, sha256(secret), body.hostname, body.mac, req.ip, body.os, body.agentVersion, body.user || null,
-        key.default_location, key.default_department, status, now, now);
+        location, department, status, now, now);
     }
     db.prepare('UPDATE enroll_keys SET uses = uses + 1 WHERE id = ?').run(key.id);
     audit(null, 'device_enrolled', 'device', deviceId, { hostname: body.hostname, status }, req.ip);

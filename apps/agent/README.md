@@ -1,9 +1,21 @@
-# ErtePano Ajan (Windows masaüstü)
+# ErtePano Ajan (Windows)
 
-Tauri v2 + Rust. Her bilgisayarda tepside çalışır; sunucudan gelen **imzalı** duyuruları ekranda gösterir,
-acil durum yoklamasına yanıt alır ve KVKK uyumlu IT envanteri gönderir. Sözleşme: [`docs/PROTOKOL.md`](../../docs/PROTOKOL.md).
+İki süreçten oluşur; sözleşme: [`docs/PROTOKOL.md`](../../docs/PROTOKOL.md) (§6 hizmet ⇄ arayüz).
 
-Ön yüz paketleyicisiz düz HTML/CSS/JS'dir (`ui/`), npm bağımlılığı yoktur.
+| Süreç | Hesap | Görev |
+|---|---|---|
+| **`ertepano-service.exe`** — Windows hizmeti `ErtePanoAgent` | LocalSystem | Kayıt, WebSocket, telemetri, kalıcı giden kutusu, Ed25519 imza doğrulama. Her etkin oturumda arayüzü başlatır, kapatılırsa ≤10 sn içinde yeniden açar (rootkit/süreç gizleme yok). Durdurulamaz: standart kullanıcının hizmet durdurma yetkisi yoktur; çökerse SCM 10 sn sonra yeniden başlatır. |
+| **`ertepano_agent.exe`** — Tauri v2 arayüzü | Oturumdaki kullanıcı | Kart, şerit, rozet, acil tam ekran, tepsi menüsü. Hizmetle yerel borudan (`\\.\pipe\ErtePano.Agent`) konuşur; imzaları kendisi de doğrular. Hizmet yoksa (geliştirme) sunucuya doğrudan bağlanır. |
+
+```
+apps/agent/
+├─ core/        ortak kütüphane: yapılandırma, kayıt + WebSocket istemcisi, imza doğrulama, telemetri
+├─ service/     Windows hizmeti (SCM, boru sunucusu, oturum bekçisi)
+├─ src-tauri/   arayüz (Rust) + ui/ (paketleyicisiz HTML/CSS/JS)
+├─ installer/   ErtePano.wxs — WiX 3 MSI tanımı
+└─ scripts/     build-msi.ps1, new-test-cert.ps1
+```
+GPO ile dağıtım: [`deploy/gpo/README.md`](../../deploy/gpo/README.md).
 
 ## Gösterim türleri
 
@@ -11,94 +23,73 @@ acil durum yoklamasına yanıt alır ve KVKK uyumlu IT envanteri gönderir. Söz
 |---|---|---|
 | `toast` / `survey` | Sağ altta kart | Sırayla tek tek. Onay istemeyenler 60 sn (anket 180 sn) sonra kapanır. |
 | `banner` / `countdown` | Üst şerit (birincil monitör) | Geri sayım kapatılsa da son 5 dakikada yeniden açılır. |
-| `badge` | Köşede rozet | **Click-through** (tıklama arkadaki uygulamaya geçer); imleç üstündeyken soluklaşır. |
-| `fullscreen` | Her monitörde tam ekran | Kapatılamaz (Alt+F4 dahil). `emergencyId` varsa **Güvendeyim / Yardım lazım**; `drill` ise **TATBİKAT** etiketi; `sound` ise siren. Yanıttan sonra olay bitene kadar üstte kırmızı şerit kalır. |
+| `badge` | Rozet (en fazla 4 aynı anda) | `position` (9 hazır konum) ya da `posX`/`posY` (%) ile **ekranın istenen yerinde**, `size` 64–480 px, `opacity` 0.2–1. Görsel (`imageUrl`) yoksa emoji. **Click-through**; imleç üstündeyken soluklaşır. Ör. 10 Kasım'da Atatürk portresi ekranın sol üstünde, 29 Ekim'de bayrak ortada. |
+| `fullscreen` | Her monitörde tam ekran | Kapatılamaz (Alt+F4 dahil). `emergencyId` varsa **Güvendeyim / Yardım lazım**; `drill` ise **TATBİKAT**; `sound` ise siren. |
 
 **Rahatsız etmeme:** Tam ekran sunum/oyun/video açıkken kart, şerit, anket ve rozet bekler. Acil durum hiçbir zaman beklemez.
 
-## Tepsi menüsü
-
-Durum satırı · Duyurularım · IT'ye bildir… · Ramak kala bildir… (anonim seçeneği) · Bu yazılım ne topluyor? · Çıkış
-
 ## Yapılandırma
 
-`agent.json` şu sırayla aranır:
-
-1. `%ProgramData%\ErtePano\agent.json` (GPO ile dağıtım için önerilen yer)
-2. Ajan `.exe` dosyasının yanındaki `agent.json`
-3. `ERTEPANO_CONFIG` ortam değişkenindeki yol (geliştirme)
+Kaynaklar (ilk bulunan temel alınır): `%ProgramData%\ErtePano\agent.json` → `HKLM\SOFTWARE\ErtePano` (MSI özellikleri) →
+exe yanındaki `agent.json` → `ERTEPANO_CONFIG` (geliştirme). Ardından **GPO** `HKLM\SOFTWARE\Policies\ErtePano`
+(yönetim şablonu `deploy/gpo/ErtePano.admx`) dolu alanları ezer.
 
 ```json
-{
-  "serverUrl": "http://localhost:4100",
-  "enrollKey": "EK-XXXX-XXXX",
-  "publicKey": "<sunucunun Ed25519 genel anahtarı, base64>"
-}
+{ "serverUrl": "https://pano.sirket.local", "enrollKey": "EK-XXXX-XXXX-XXXX", "publicKey": "<base64>", "location": "Gebze Fabrika", "department": "Üretim" }
 ```
-
-- `enrollKey`: Panel → Ajan kurulumu → Kayıt anahtarları (sayfa hazır `agent.json`'ı da verir).
-- `publicKey`: Sunucunun imza anahtarı. **Üretimde mutlaka doldurun.** Boş bırakılırsa ajan ilk kayıtta gelen anahtara güvenir (TOFU)
-  ve onu `device.json`'a sabitler; sonradan değişen anahtarla imzalanmış duyurular gösterilmez.
-
-Ajanın yazdığı dosyalar (`%APPDATA%\ErtePano\`):
+- `publicKey`: sunucunun imza anahtarı (Panel → Ajan kurulumu). **Üretimde mutlaka verin**; boşsa ilk kayıtta gelen anahtar sabitlenir (TOFU).
+- `location` / `department`: ilk kayıtta cihaz etiketi önerisi (kayıt anahtarının varsayılanı yoksa).
 
 | Dosya | İçerik |
 |---|---|
-| `device.json` | Cihaz kimliği + sırrı (+ TOFU anahtarı) |
-| `cache.json` | Aktif duyurular (imzalı), okundu/kapatıldı kayıtları, gönderilmeyi bekleyen mesajlar |
-| `agent.log` | Günlük (1 MB'da sıfırlanır) |
+| `%ProgramData%\ErtePano\service\` (yalnız SYSTEM + Yöneticiler) | `device.json` (kimlik + sır), `outbox.json`, `cache.json`, `service.log` |
+| `%APPDATA%\ErtePano\` (kullanıcı) | `cache.json` (okundu/onay/yoklama yanıtları, Duyurularım), `agent.log` |
 
-Sunucu cihaz kimliğini reddederse (`{"t":"error","code":"auth"}`) ajan kimliği silip yeniden kayıt olur.
+## Geliştirme
 
-## Derleme
-
-Gerekenler: Rust (stable, MSVC), Visual Studio 2022 C++ Build Tools. WebView2 Windows 11'de hazırdır.
-
-```bash
-cd apps/agent/src-tauri
-cargo build              # geliştirme: target/debug/ertepano_agent.exe
-cargo build --release    # küçük, optimize exe: target/release/ertepano_agent.exe
-```
-
-Kurulum paketi (MSI + NSIS):
-
-```bash
-cd apps/agent/src-tauri
-npx @tauri-apps/cli@2 build
-# çıktı: target/release/bundle/msi/*.msi ve target/release/bundle/nsis/*.exe
-```
-
-Geliştirmede sunucuya bağlanmak için:
+Gerekenler: Rust (stable, MSVC), Visual Studio 2022 C++ Build Tools, Node ≥ 20. WebView2 Windows 10 21H2+/11'de hazırdır.
 
 ```powershell
+cd apps/agent
+cargo build --workspace                       # target/debug/ertepano-service.exe + ertepano_agent.exe
+
+# hizmeti kurmadan ön planda çalıştır (bekçi kapalı; kimlik %APPDATA%\ErtePano\service-console)
 $env:ERTEPANO_CONFIG = "C:\yol\agent.json"
+.\target\debug\ertepano-service.exe --console
+# ikinci terminalde arayüz: boru varsa hizmet üzerinden bağlanır
 .\target\debug\ertepano_agent.exe
 ```
+Hizmet olmadan yalnız arayüzü çalıştırırsanız sunucuya doğrudan bağlanır (eski davranış).
+El ile hizmet kurulumu (MSI'sız, yönetici): `ertepano-service.exe install` / `uninstall`.
 
-> İkonlar `scripts/make-icons.ps1` ile üretilmiş **yer tutuculardır**. Marka ikonu hazır olunca
-> `npx @tauri-apps/cli@2 icon logo.png` ile değiştirin.
+## MSI paketi
 
-## GPO ile dağıtım (notlar)
+```powershell
+cd apps/agent/scripts
+.\new-test-cert.ps1 -Password 'Test-Parola-1'                            # yalnız test: certs\test-codesign.pfx + .cer
+.\build-msi.ps1 -PfxPath ..\certs\test-codesign.pfx -PfxPassword 'Test-Parola-1'
+# üretim: kurumsal kod imzalama sertifikası (sertifika deposunda)
+.\build-msi.ps1 -CertThumbprint <SHA1 parmak izi>
+```
+Çıktı: `apps/agent/dist/ErtePano-Ajan-<sürüm>-x64.msi` + `.sha256`. Betik hizmeti ve arayüzü release derler
+(arayüz `npx @tauri-apps/cli@2 build` ile; Tauri ilk seferde WiX 3.14'ü `%LOCALAPPDATA%\tauri\WixTools314`'e indirir),
+iki exe'yi ve MSI'ı `signtool` ile imzalar (zaman damgası alınamazsa uyarıp damgasız imzalar; internetsiz ortamda `-NoTimestamp`).
 
-1. MSI'ı kod imzalama sertifikasıyla imzalayın (`signtool`); AV/EDR beyaz listesine ekleyin.
-2. **Computer Configuration → Policies → Software Settings → Software Installation** ile MSI'ı atayın (sessiz kurulur).
-3. `agent.json`'ı **Group Policy Preferences → Files** ile `%ProgramData%\ErtePano\agent.json` konumuna kopyalayın.
-4. Ajan kullanıcı oturumunda çalışmalıdır (pencere gösterir): **GPP → Registry** ile
-   `HKLM\Software\Microsoft\Windows\CurrentVersion\Run` altına `ErtePano = "C:\Program Files\ErtePano Ajan\ertepano_agent.exe"` ekleyin.
-5. İlk açılışta ajan kayıt olur; IT panelde cihazı onaylayana kadar "IT onayı bekleniyor" durumunda kalır.
+MSI: makine geneli x64, `%ProgramFiles%\ErtePano`, hizmeti kurar ve başlatır, çökme kurtarma (10 sn), `MajorUpgrade`
+(sürüm yükseltmede ayarlar ve cihaz kimliği korunur), isteğe bağlı `SERVERURL / ENROLLKEY / PUBLICKEY / LOCATION / DEPARTMENT`.
 
-Faz 2'de telemetri + WebSocket kısmı Windows Service'e taşınacak, bu uygulama yalnızca kullanıcı oturumundaki gösterici olacaktır (bkz. şartname §3.3).
+> İkonlar `scripts/make-icons.ps1` ile üretilmiş **yer tutuculardır**; marka ikonu için `npx @tauri-apps/cli@2 icon logo.png`.
 
 ## Kod haritası
 
 | Dosya | Görev |
 |---|---|
-| `src/main.rs` | Tauri kurulumu, komutlar, tek örnek, acil pencerelerinin kapatılmasını engelleme |
-| `src/net.rs` | Kayıt (HTTP), WebSocket oturumu, yeniden bağlanma (1-2-5-10-30 sn + sapma), giden kutusu |
-| `src/verify.rs` | Ed25519 imza doğrulama + tazelik (süresi dolan / 24 saatten eski acil yükü reddet) |
-| `src/agent.rs` | Durum, önbellek (`cache.json`), okundu/kapatıldı kayıtları |
-| `src/display.rs` | Hangi pencere açık olmalı → oluştur / taşı / kapat; rahatsız etmeme; rozet hover |
-| `src/win.rs` | Win32: monitörler, click-through/odak çalmama stilleri, topmost, tam ekran uygulama algılama (ErtePals'tan) |
-| `src/telemetry.rs` | Envanter alanları (sysinfo) |
-| `src/tray.rs` | Tepsi menüsü |
-| `ui/*.html, *.js` | Kart, şerit, rozet, acil ekranı, Duyurularım, bildirim formları, aydınlatma |
+| `core/src/config.rs` | Yapılandırma kaynakları (dosya, MSI kaydı, GPO ilkesi) |
+| `core/src/client.rs` | Kayıt (HTTP), WebSocket oturumu, yeniden bağlanma (1-2-5-10-30 sn + sapma), kalıcı giden kutusu |
+| `core/src/verify.rs` | Ed25519 imza + tazelik (süresi dolan / 24 saatten eski acil yükü reddet) |
+| `service/src/main.rs` | SCM, `--console`, `install`/`uninstall`, hata eylemleri, durunca arayüzleri kapatma |
+| `service/src/pipe.rs` | Boru sunucusu (DACL, uzak istemci reddi, istemci exe doğrulaması) |
+| `service/src/watchdog.rs` | Etkin oturumlarda arayüzü `CreateProcessAsUser` ile başlatma, çökme geri çekilmesi |
+| `src-tauri/src/backend.rs` | Hizmet borusu istemcisi / doğrudan mod |
+| `src-tauri/src/display.rs` | Hangi pencere nerede açık olmalı (rozet konumu dahil); rahatsız etmeme |
+| `src-tauri/src/win.rs` | Win32: monitörler, click-through/odak çalmama, topmost, tam ekran uygulama algılama (ErtePals'tan) |

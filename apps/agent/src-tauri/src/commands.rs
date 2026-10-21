@@ -1,6 +1,6 @@
 //! Arayüz sayfalarının çağırdığı komutlar (window.__TAURI__.core.invoke).
-use crate::agent::{agent, lock, Status, VERSION};
-use crate::model::parse_time;
+use crate::agent::{agent, lock, VERSION};
+use ertepano_core::model::parse_time;
 use serde_json::{json, Value};
 use tauri::{AppHandle, Manager, WebviewWindow};
 
@@ -42,13 +42,12 @@ pub fn act(app: AppHandle, id: String, action: String, answer: Option<String>) -
         if g.toast_current.as_deref() == Some(id.as_str()) {
             g.toast_current = None;
         }
-        let mut msg = json!({ "t": "ack", "id": id, "action": action });
-        if let Some(ans) = answer.filter(|a| !a.trim().is_empty()) {
-            msg["answer"] = json!(clip(&ans, 200));
-        }
-        g.queue(msg);
     }
-    ag.notify.notify_one();
+    let mut msg = json!({ "t": "ack", "id": id, "action": action });
+    if let Some(ans) = answer.filter(|a| !a.trim().is_empty()) {
+        msg["answer"] = json!(clip(&ans, 200));
+    }
+    ag.send(msg);
     Ok(())
 }
 
@@ -63,13 +62,12 @@ pub fn safety(app: AppHandle, emergency_id: String, status: String, note: Option
         let mut g = lock(&ag.inner);
         g.cache.safety.insert(emergency_id.clone(), status.clone());
         g.dirty = true;
-        let mut msg = json!({ "t": "safety", "emergencyId": emergency_id, "status": status });
-        if let Some(n) = note.map(|n| clip(&n, NOTE_MAX_CHARS)).filter(|n| !n.is_empty()) {
-            msg["note"] = json!(n);
-        }
-        g.queue(msg);
     }
-    ag.notify.notify_one();
+    let mut msg = json!({ "t": "safety", "emergencyId": emergency_id, "status": status });
+    if let Some(n) = note.map(|n| clip(&n, NOTE_MAX_CHARS)).filter(|n| !n.is_empty()) {
+        msg["note"] = json!(n);
+    }
+    ag.send(msg);
     Ok(())
 }
 
@@ -84,12 +82,8 @@ pub fn send_report(app: AppHandle, kind: String, text: String, anonymous: bool) 
         return Err("Lütfen kısa bir açıklama yazın.".into());
     }
     let ag = agent(&app);
-    let online = {
-        let mut g = lock(&ag.inner);
-        g.queue(json!({ "t": "report", "kind": kind, "text": text, "anonymous": anonymous && kind == "near_miss" }));
-        matches!(g.status, Status::Online | Status::Pending)
-    };
-    ag.notify.notify_one();
+    ag.send(json!({ "t": "report", "kind": kind, "text": text, "anonymous": anonymous && kind == "near_miss" }));
+    let online = lock(&ag.inner).status.connected();
     Ok(online)
 }
 
@@ -113,16 +107,28 @@ pub fn recent(app: AppHandle) -> Vec<Value> {
 pub fn status(app: AppHandle) -> Value {
     let ag = agent(&app);
     let g = lock(&ag.inner);
+    let (mode, pending, device_id, server_url) = match ag.backend.get() {
+        Some(crate::backend::Backend::Direct(c)) => ("direct", c.pending(), c.device_id(), Some(c.cfg.server_url.clone())),
+        Some(b) => (
+            b.mode(),
+            b.pending() + g.service_info.get("pending").and_then(|p| p.as_u64()).unwrap_or(0) as usize,
+            g.service_info.get("deviceId").and_then(|d| d.as_str()).map(String::from),
+            g.service_info.get("serverUrl").and_then(|d| d.as_str()).map(String::from),
+        ),
+        None => ("none", 0, None, None),
+    };
     json!({
         "code": g.status.code(),
         "text": g.status.text(),
-        "serverUrl": ag.cfg.as_ref().map(|c| c.server_url.clone()),
-        "deviceId": g.device.as_ref().map(|d| d.device_id.clone()),
-        "hostname": crate::telemetry::hostname(),
-        "user": crate::telemetry::user(),
-        "pending": g.cache.outbox.len(),
+        "mode": mode,
+        "serverUrl": server_url.or_else(|| ag.cfg.as_ref().map(|c| c.server_url.clone())),
+        "deviceId": device_id,
+        "hostname": ertepano_core::telemetry::hostname(),
+        "user": ertepano_core::sys::current_user(),
+        "pending": pending,
         "version": VERSION,
         "keyPinned": ag.cfg.as_ref().is_some_and(|c| !c.public_key.trim().is_empty()),
+        "configSource": ag.cfg.as_ref().map(|c| c.source.clone()),
     })
 }
 

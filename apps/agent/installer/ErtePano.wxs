@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ErtePano Ajan — makine geneli MSI (GPO Software Installation / msiexec / SCCM / Intune).
+  Derleme: apps/agent/scripts/build-msi.ps1 (candle -ext WixUtilExtension, light -ext WixUtilExtension).
+
+  Kurulan:
+    %ProgramFiles%\ErtePano\ertepano-service.exe   Windows hizmeti "ErtePanoAgent" (LocalSystem, otomatik, çökerse 10 sn sonra yeniden)
+    %ProgramFiles%\ErtePano\ertepano_agent.exe     Kullanıcı oturumu arayüzü (hizmet her oturumda başlatır)
+
+  İsteğe bağlı özellikler (GPO'da yerine ErtePano.admx yönetim şablonu önerilir):
+    msiexec /i ErtePano-Ajan.msi /qn SERVERURL=https://pano.sirket.local ENROLLKEY=EK-XXXX-XXXX-XXXX PUBLICKEY=<base64> LOCATION="Gebze Fabrika" DEPARTMENT=Üretim
+    → HKLM\SOFTWARE\ErtePano. Yükseltmede verilmezse önceki değerler korunur.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Product Id="*" Name="ErtePano Ajan" Language="1033" Version="$(var.Version)" Manufacturer="Erte" UpgradeCode="15BDB10F-5316-4C95-B325-05EACD1F54E1">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64"
+             Description="ErtePano Ajan $(var.Version)" Comments="Kurumsal ekran duyurulari (IK, ISG, IT) ve IT envanteri" />
+
+    <MajorUpgrade Schedule="afterInstallInitialize" DowngradeErrorMessage="Daha yeni bir ErtePano Ajan surumu zaten kurulu." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="ErtePanoIcon" SourceFile="$(var.IconFile)" />
+    <Property Id="ARPPRODUCTICON" Value="ErtePanoIcon" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPCOMMENTS" Value="Kurumsal ekran duyurulari (IK, ISG, IT) ve IT envanteri" />
+
+    <Condition Message="ErtePano Ajan 64 bit Windows 10 veya Windows 11 gerektirir.">
+      <![CDATA[Installed OR (VersionNT64 >= 603)]]>
+    </Condition>
+
+    <!-- Komut satırı özellikleri; verilmezse mevcut kurulumdaki değerler (yükseltme) korunur -->
+    <Property Id="SERVERURL" Secure="yes" />
+    <Property Id="ENROLLKEY" Secure="yes" Hidden="yes" />
+    <Property Id="PUBLICKEY" Secure="yes" />
+    <Property Id="LOCATION" Secure="yes" />
+    <Property Id="DEPARTMENT" Secure="yes" />
+    <Property Id="OLD_SERVERURL" Secure="yes"><RegistrySearch Id="SrSrv" Root="HKLM" Key="SOFTWARE\ErtePano" Name="ServerUrl" Type="raw" Win64="yes" /></Property>
+    <Property Id="OLD_ENROLLKEY" Secure="yes" Hidden="yes"><RegistrySearch Id="SrKey" Root="HKLM" Key="SOFTWARE\ErtePano" Name="EnrollKey" Type="raw" Win64="yes" /></Property>
+    <Property Id="OLD_PUBLICKEY" Secure="yes"><RegistrySearch Id="SrPub" Root="HKLM" Key="SOFTWARE\ErtePano" Name="PublicKey" Type="raw" Win64="yes" /></Property>
+    <Property Id="OLD_LOCATION" Secure="yes"><RegistrySearch Id="SrLoc" Root="HKLM" Key="SOFTWARE\ErtePano" Name="Location" Type="raw" Win64="yes" /></Property>
+    <Property Id="OLD_DEPARTMENT" Secure="yes"><RegistrySearch Id="SrDep" Root="HKLM" Key="SOFTWARE\ErtePano" Name="Department" Type="raw" Win64="yes" /></Property>
+    <SetProperty Id="SERVERURL" Value="[OLD_SERVERURL]" After="AppSearch" Sequence="first">NOT SERVERURL AND OLD_SERVERURL</SetProperty>
+    <SetProperty Id="ENROLLKEY" Value="[OLD_ENROLLKEY]" After="AppSearch" Sequence="first">NOT ENROLLKEY AND OLD_ENROLLKEY</SetProperty>
+    <SetProperty Id="PUBLICKEY" Value="[OLD_PUBLICKEY]" After="AppSearch" Sequence="first">NOT PUBLICKEY AND OLD_PUBLICKEY</SetProperty>
+    <SetProperty Id="LOCATION" Value="[OLD_LOCATION]" After="AppSearch" Sequence="first">NOT LOCATION AND OLD_LOCATION</SetProperty>
+    <SetProperty Id="DEPARTMENT" Value="[OLD_DEPARTMENT]" After="AppSearch" Sequence="first">NOT DEPARTMENT AND OLD_DEPARTMENT</SetProperty>
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLFOLDER" Name="ErtePano" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="AgentUi" Guid="*" Win64="yes">
+        <File Id="AgentUiExe" Name="ertepano_agent.exe" Source="$(var.UiExe)" KeyPath="yes" />
+      </Component>
+
+      <Component Id="AgentService" Guid="*" Win64="yes">
+        <File Id="ServiceExe" Name="ertepano-service.exe" Source="$(var.ServiceExe)" KeyPath="yes" />
+        <ServiceInstall Id="ErtePanoServiceInstall" Name="ErtePanoAgent" DisplayName="ErtePano Ajan"
+                        Description="ErtePano kurumsal ekran duyurulari (IK, ISG, IT) ve IT envanteri. Durdurulursa calisanlar acil durum uyarilarini goremez."
+                        Type="ownProcess" Start="auto" ErrorControl="normal" Account="LocalSystem" Vital="yes">
+          <util:ServiceConfig FirstFailureActionType="restart" SecondFailureActionType="restart" ThirdFailureActionType="restart"
+                              RestartServiceDelayInSeconds="10" ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="ErtePanoServiceControl" Name="ErtePanoAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+
+      <Component Id="MsiConfig" Guid="6E0C3B7E-6D8B-4A55-9A2E-1C7B4F0E9D21" Win64="yes">
+        <Condition>SERVERURL</Condition>
+        <RegistryKey Root="HKLM" Key="SOFTWARE\ErtePano">
+          <RegistryValue Name="ServerUrl" Type="string" Value="[SERVERURL]" KeyPath="yes" />
+          <RegistryValue Name="EnrollKey" Type="string" Value="[ENROLLKEY]" />
+          <RegistryValue Name="PublicKey" Type="string" Value="[PUBLICKEY]" />
+          <RegistryValue Name="Location" Type="string" Value="[LOCATION]" />
+          <RegistryValue Name="Department" Type="string" Value="[DEPARTMENT]" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="Main" Title="ErtePano Ajan" Level="1" Absent="disallow">
+      <ComponentRef Id="AgentUi" />
+      <ComponentRef Id="AgentService" />
+      <ComponentRef Id="MsiConfig" />
+    </Feature>
+  </Product>
+</Wix>

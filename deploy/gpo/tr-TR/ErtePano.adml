@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>ErtePano Ajan</displayName>
+  <description>ErtePano kurumsal ekran duyuruları ajanı ayarları</description>
+  <resources>
+    <stringTable>
+      <string id="Cat_ErtePano">ErtePano Ajan</string>
+      <string id="SUPPORTED_ErtePano02">ErtePano Ajan 0.2 ve üzeri (Windows 10/11, 64 bit)</string>
+
+      <string id="ServerUrl">Sunucu adresi</string>
+      <string id="ServerUrl_Help">ErtePano sunucusunun adresi, örn. https://pano.sirket.local
+
+Ajan bu adrese kaydolur ve WebSocket ile bağlanır. Bu ilke, MSI özelliği (SERVERURL) ve %ProgramData%\ErtePano\agent.json içindeki değeri ezer.
+
+Değiştirildiğinde ajan bir sonraki hizmet başlangıcında yeni sunucuya yeniden kaydolur.</string>
+
+      <string id="EnrollKey">Kayıt anahtarı</string>
+      <string id="EnrollKey_Help">ErtePano paneli → Ajan kurulumu sayfasında üretilen kayıt anahtarı (EK-XXXX-XXXX-XXXX).
+
+Anahtar yalnızca yeni cihaz kaydı için kullanılır; kayıtlı cihazlar etkilenmez. Anahtar sızarsa panelden iptal edip yenisini bu ilkeyle dağıtın.</string>
+
+      <string id="PublicKey">Sunucu imza anahtarı (genel anahtar)</string>
+      <string id="PublicKey_Help">Sunucunun Ed25519 genel anahtarı (base64). Panel → Ajan kurulumu sayfasındaki agent.json içinde yer alır.
+
+Ajan yalnızca bu anahtarla imzalanmış duyuruları gösterir; sahte sunucu veya ağ saldırısıyla duyuru (ör. sahte acil durum) gösterilemez. Üretimde mutlaka ayarlayın.</string>
+
+      <string id="Location">Lokasyon</string>
+      <string id="Location_Help">Bu GPO'nun bağlı olduğu bilgisayarların lokasyonu (örn. Gebze Fabrika). İlk kayıtta cihaza otomatik etiket olarak yazılır; duyuru ve acil durum hedeflemesinde kullanılır.
+
+Kayıt anahtarının panelde tanımlı varsayılan lokasyonu varsa o kullanılır. IT'nin panelde elle verdiği etiket ezilmez. OU başına ayrı GPO ile her siteye farklı değer verin.</string>
+
+      <string id="Department">Departman</string>
+      <string id="Department_Help">Bu bilgisayarların departmanı (örn. Üretim). İlk kayıtta cihaza otomatik etiket olarak yazılır. Kurallar Lokasyon ilkesiyle aynıdır.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="ServerUrl"><textBox refId="ServerUrlText"><label>Sunucu adresi:</label></textBox></presentation>
+      <presentation id="EnrollKey"><textBox refId="EnrollKeyText"><label>Kayıt anahtarı:</label></textBox></presentation>
+      <presentation id="PublicKey"><textBox refId="PublicKeyText"><label>Genel anahtar (base64):</label></textBox></presentation>
+      <presentation id="Location"><textBox refId="LocationText"><label>Lokasyon:</label></textBox></presentation>
+      <presentation id="Department"><textBox refId="DepartmentText"><label>Departman:</label></textBox></presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

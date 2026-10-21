@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                           revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <displayName>ErtePano Agent</displayName>
+  <description>Settings for the ErtePano corporate screen announcements agent</description>
+  <resources>
+    <stringTable>
+      <string id="Cat_ErtePano">ErtePano Agent</string>
+      <string id="SUPPORTED_ErtePano02">ErtePano Agent 0.2 or later (Windows 10/11, 64-bit)</string>
+
+      <string id="ServerUrl">Server URL</string>
+      <string id="ServerUrl_Help">Address of the ErtePano server, e.g. https://pano.company.local
+
+The agent enrolls with and connects (WebSocket) to this address. This policy overrides the MSI property (SERVERURL) and %ProgramData%\ErtePano\agent.json.</string>
+
+      <string id="EnrollKey">Enrollment key</string>
+      <string id="EnrollKey_Help">Enrollment key generated in the ErtePano panel (Agent setup page), e.g. EK-XXXX-XXXX-XXXX. Only used to enroll new devices.</string>
+
+      <string id="PublicKey">Server signing key (public key)</string>
+      <string id="PublicKey_Help">The server's Ed25519 public key (base64), shown in the agent.json on the Agent setup page. The agent only displays announcements signed with this key. Always set this in production.</string>
+
+      <string id="Location">Location</string>
+      <string id="Location_Help">Location of the computers this GPO applies to (e.g. Gebze Plant). Written as a device tag at first enrollment unless the enrollment key defines a default; never overwrites a tag set in the panel.</string>
+
+      <string id="Department">Department</string>
+      <string id="Department_Help">Department of these computers. Same rules as the Location policy.</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="ServerUrl"><textBox refId="ServerUrlText"><label>Server URL:</label></textBox></presentation>
+      <presentation id="EnrollKey"><textBox refId="EnrollKeyText"><label>Enrollment key:</label></textBox></presentation>
+      <presentation id="PublicKey"><textBox refId="PublicKeyText"><label>Public key (base64):</label></textBox></presentation>
+      <presentation id="Location"><textBox refId="LocationText"><label>Location:</label></textBox></presentation>
+      <presentation id="Department"><textBox refId="DepartmentText"><label>Department:</label></textBox></presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

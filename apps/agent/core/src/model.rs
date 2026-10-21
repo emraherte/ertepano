@@ -25,7 +25,15 @@ pub struct Announcement {
     pub ack_label: Option<String>,
     pub options: Option<Vec<String>>,
     pub countdown_to: Option<String>,
+    /// Rozet: top-left | top-center | top-right | middle-left | center | middle-right | bottom-left | bottom-center | bottom-right | custom
     pub position: Option<String>,
+    /// Rozet merkezinin çalışma alanındaki yüzde konumu (0–100); verilirse `position`ı ezer
+    pub pos_x: Option<f64>,
+    pub pos_y: Option<f64>,
+    /// Rozet kenar uzunluğu (mantıksal px, 64–480; varsayılan 160)
+    pub size: Option<f64>,
+    /// Rozet opaklığı (0.2–1; varsayılan 1)
+    pub opacity: Option<f64>,
     pub sound: bool,
     pub emergency_id: Option<String>,
     pub drill: bool,

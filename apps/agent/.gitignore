@@ -1,3 +1,6 @@
+target/
 src-tauri/target/
 src-tauri/gen/
 agent.json
+dist/
+certs/

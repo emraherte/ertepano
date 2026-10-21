@@ -13,7 +13,8 @@ KVKK sınırları içinde **IT envanteri** toplar. ErtePals'ın şeffaf/click-th
 |---|---|
 | `server` | Node 20 + Fastify + SQLite (WAL). REST `/api/*`, ajan WebSocket'i `/ws/agent`, Ed25519 imza, zamanlayıcı (özel gün, kutlama, KVKK temizliği) |
 | `apps/panel` | React + Vite + Tailwind CSS v4 + Framer Motion + Lucide web paneli (açık/koyu tema, ⌘K komut paleti) + `/kiosk` TV ekranı |
-| `apps/agent` | Windows ajanı: Tauri v2 + Rust, paketleyicisiz HTML arayüz ([README](apps/agent/README.md)) |
+| `apps/agent` | Windows ajanı: **Windows hizmeti** (`ertepano-service`, LocalSystem) + kullanıcı oturumu arayüzü (Tauri v2), imzalı **MSI** ([README](apps/agent/README.md)) |
+| `deploy/gpo` | GPO dağıtımı: yönetim şablonu (ADMX/ADML), rehber, istemci denetim ve GPO taklit betikleri ([README](deploy/gpo/README.md)) |
 | `packages/shared` | Ortak tipler ve sabitler |
 | `tools/sim` | Sahte ajan simülatörü (ajanı derlemeden uçtan uca deneme) |
 
@@ -74,6 +75,13 @@ sabitlenir). Cihazlar tek tek kayıt anahtarı + cihaz sırrı ile bağlanır, I
 scrypt parola, `httpOnly + SameSite=Strict` oturum çerezi, kaba kuvvet sınırı ve **silinemez denetim kaydı** vardır.
 Ajan ekran görüntüsü, pencere başlığı, klavye/fare, tarayıcı geçmişi veya dosya verisi **toplamaz**.
 
+## Ajanı dağıtma
+
+1. `apps/agent/scripts/build-msi.ps1 -CertThumbprint <kod imzalama sertifikası>` → `apps/agent/dist/ErtePano-Ajan-<sürüm>-x64.msi`
+2. MSI'ı paylaşıma koyun, GPO → *Software installation (Assigned)*; `deploy/gpo/ErtePano.admx` ile sunucu adresi,
+   kayıt anahtarı, imza anahtarı ve OU başına lokasyon verin. Ayrıntı: [deploy/gpo/README.md](deploy/gpo/README.md).
+3. İstemcide `deploy/gpo/Test-ErtePanoClient.ps1`. Etki alanı olmadan deneme: `deploy/gpo/Simulate-GpoInstall.ps1` (yönetici).
+
 ## Bilinen eksikler (sıradaki adımlar)
 
-Windows Service ayrımı, mTLS, imzalı otomatik güncelleme, PostgreSQL seçeneği, tatbikat tutanağı PDF — bkz. şartname §7.
+mTLS, imzalı otomatik güncelleme, PostgreSQL seçeneği, tatbikat tutanağı PDF — bkz. şartname §7.

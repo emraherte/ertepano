@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ErtePano Ajan yönetim şablonu: HKLM\SOFTWARE\Policies\ErtePano. Central Store: \\<etki alanı>\SYSVOL\<etki alanı>\Policies\PolicyDefinitions -->
+<policyDefinitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   revision="1.0" schemaVersion="1.0" xmlns="http://schemas.microsoft.com/GroupPolicy/2006/07/PolicyDefinitions">
+  <policyNamespaces>
+    <target prefix="ertepano" namespace="Erte.Policies.ErtePano" />
+    <using prefix="windows" namespace="Microsoft.Policies.Windows" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <supportedOn>
+    <definitions>
+      <definition name="SUPPORTED_ErtePano02" displayName="$(string.SUPPORTED_ErtePano02)" />
+    </definitions>
+  </supportedOn>
+  <categories>
+    <category name="ErtePano" displayName="$(string.Cat_ErtePano)" />
+  </categories>
+  <policies>
+    <policy name="ServerUrl" class="Machine" displayName="$(string.ServerUrl)" explainText="$(string.ServerUrl_Help)"
+            presentation="$(presentation.ServerUrl)" key="SOFTWARE\Policies\ErtePano">
+      <parentCategory ref="ErtePano" />
+      <supportedOn ref="SUPPORTED_ErtePano02" />
+      <elements>
+        <text id="ServerUrlText" valueName="ServerUrl" required="true" maxLength="255" />
+      </elements>
+    </policy>
+    <policy name="EnrollKey" class="Machine" displayName="$(string.EnrollKey)" explainText="$(string.EnrollKey_Help)"
+            presentation="$(presentation.EnrollKey)" key="SOFTWARE\Policies\ErtePano">
+      <parentCategory ref="ErtePano" />
+      <supportedOn ref="SUPPORTED_ErtePano02" />
+      <elements>
+        <text id="EnrollKeyText" valueName="EnrollKey" required="true" maxLength="64" />
+      </elements>
+    </policy>
+    <policy name="PublicKey" class="Machine" displayName="$(string.PublicKey)" explainText="$(string.PublicKey_Help)"
+            presentation="$(presentation.PublicKey)" key="SOFTWARE\Policies\ErtePano">
+      <parentCategory ref="ErtePano" />
+      <supportedOn ref="SUPPORTED_ErtePano02" />
+      <elements>
+        <text id="PublicKeyText" valueName="PublicKey" required="true" maxLength="128" />
+      </elements>
+    </policy>
+    <policy name="Location" class="Machine" displayName="$(string.Location)" explainText="$(string.Location_Help)"
+            presentation="$(presentation.Location)" key="SOFTWARE\Policies\ErtePano">
+      <parentCategory ref="ErtePano" />
+      <supportedOn ref="SUPPORTED_ErtePano02" />
+      <elements>
+        <text id="LocationText" valueName="Location" required="true" maxLength="80" />
+      </elements>
+    </policy>
+    <policy name="Department" class="Machine" displayName="$(string.Department)" explainText="$(string.Department_Help)"
+            presentation="$(presentation.Department)" key="SOFTWARE\Policies\ErtePano">
+      <parentCategory ref="ErtePano" />
+      <supportedOn ref="SUPPORTED_ErtePano02" />
+      <elements>
+        <text id="DepartmentText" valueName="Department" required="true" maxLength="80" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>
