@@ -1,0 +1,13 @@
+{
+  "name": "@ertepano/license-tool",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Satıcı lisans aracı: anahtar üretimi ve imzalı müşteri lisansı basma (müşteriye dağıtılmaz).",
+  "scripts": {
+    "start": "tsx src/license.ts"
+  },
+  "dependencies": {
+    "@ertepano/shared": "0.1.0"
+  }
+}

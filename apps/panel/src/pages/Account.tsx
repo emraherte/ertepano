@@ -4,6 +4,7 @@ import { ROLE_LABELS } from '@ertepano/shared';
 import { api } from '../api';
 import { Avatar, Badge, Button, Callout, Card, CardHeader, Field, Input, KeyValue, PageHeader, useAuth, useToast } from '../ui';
 import { KioskLinks } from './AgentSetup';
+import { MfaCard } from '../components/MfaCard';
 
 export function Account() {
   const { user } = useAuth();
@@ -78,6 +79,10 @@ export function Account() {
             )}
           </div>
         </Card>
+
+        <div className="xl:col-span-12">
+          <MfaCard />
+        </div>
 
         {user.role !== 'viewer' && (
           <div className="xl:col-span-12">

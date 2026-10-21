@@ -46,7 +46,10 @@ Depo kökünde `.env` dosyası varsa otomatik okunur (örnek: [.env.example](.en
 | `SECURE_COOKIES` | false | HTTPS arkasında true |
 | `TZ_NAME` | Europe/Istanbul | Özel gün/kutlama günü hesabı |
 | `RETENTION_TELEMETRY_DAYS` / `RETENTION_DELIVERY_DAYS` / `RETENTION_COMPLIANCE_DAYS` | 30 / 365 / 730 | KVKK saklama süreleri |
-| `ADMIN_PASSWORD` | rastgele | İlk yönetici parolası (yalnız ilk açılışta) |
+| `ADMIN_PASSWORD` | rastgele | İlk yönetici parolası (yalnız ilk açılışta; konsola yazılmaz, `data/ILK-YONETICI-PAROLASI.txt` ilk parola değişiminde silinir) |
+| `TRUST_PROXY` | boş | Önünde reverse proxy varsa onun IP/CIDR'ı. Boşken `X-Forwarded-For`'a güvenilmez |
+| `ALLOWED_ORIGINS` | boş | Panelin açıldığı ek kökenler (CSRF köken denetimi; `PUBLIC_URL` kökeni zaten izinli) |
+| `DATA_DIR_ACL` | açık | Windows'ta veri klasörünü SYSTEM + Yöneticiler + sunucu hesabına kısıtlar; `off` ile kapatılır |
 
 ## Active Directory (LDAP) girişi
 
@@ -58,6 +61,40 @@ Depo kökünde `.env` dosyası varsa otomatik okunur (örnek: [.env.example](.en
 - **Yerel hesaplar her zaman çalışır** (ör. `admin`): AD'ye ulaşılamazsa yönetici yine girebilir.
 - Panel → **Sistem & LDAP**: yapılandırma özeti, bağlantı testi, rol gruplarının varlığı ve bir kullanıcının hangi rolle gireceği.
 - AD kullanıcısının rolü/parolası panelden değiştirilemez; yalnızca erişimi kapatılabilir.
+
+## İki faktörlü doğrulama (2FA)
+
+Microsoft / Google Authenticator ile TOTP (RFC 6238). Parola doğruysa 5 dakikalık bir doğrulama bileti verilir; oturum ancak
+6 haneli kod (ya da tek kullanımlık kurtarma kodu) ile açılır.
+
+- **Zorunluluk:** Sistem & güvenlik → hangi rollerde zorunlu (varsayılan: Yönetici). Zorunlu roldeki kullanıcı kurulumu bitirene kadar
+  yalnızca kurulum ekranını görür. AD kullanıcıları için de geçerlidir.
+- Gizli anahtarlar veritabanında AES-256-GCM ile şifreli (`data/keys/mfa.key`); kurtarma kodlarının yalnızca HMAC özeti tutulur.
+- Aynı kod iki kez kullanılamaz; bilet 5 hatalı denemede düşer; kullanıcı başına 15 dk'da 10 hatalı kod sınırı.
+- Telefonunu kaybeden kullanıcı: Kullanıcılar → **2FA sıfırla** (yönetici). 2FA açılınca kullanıcının diğer oturumları kapanır.
+
+## Modüler lisans
+
+| Paket | İçerik |
+|---|---|
+| **Temel** (her lisansta) | Genel duyurular, özel gün rozetleri, kiosk/TV, cihaz kaydı, kullanıcılar, 2FA, LDAP |
+| **İK modülü** | İK duyuruları, anketler, doğum günü / kıdem / hoş geldin kutlamaları |
+| **İSG modülü** | Tam ekran acil durum + canlı yoklama, tatbikat, ramak kala, İSG duyuruları |
+| **IT modülü** | Donanım envanteri ve sağlık uyarıları, CSV, IT duyuruları, siber olay uyarısı, IT talepleri |
+
+- Lisans yokken ilk açılıştan itibaren **30 gün tüm modüller açık deneme** (25 cihaz). Süresi dolan lisans 14 gün ek süreyle çalışır,
+  sonra yalnızca temel paket kalır. Acil durum her koşulda **sonlandırılabilir**.
+- Lisans dosyası satıcının Ed25519 özel anahtarıyla imzalıdır; müşteri lisans üretemez/değiştiremez. İsteğe bağlı olarak sunucu
+  kimliğine bağlanır (Lisans ve modüller sayfasında görünür). Cihaz sınırı onayda uygulanır.
+- **Satıcı aracı** (müşteriye verilmez):
+
+  ```bash
+  npm run license -- keygen      # bir kez; özel anahtar %USERPROFILE%\.ertepano-vendor\ altında (depoya girmez — yedekleyin)
+  npm run license -- issue --customer "Örnek A.Ş." --modules ik,isg --devices 250 --until 2027-12-31 --out ornek.lic
+  npm run license -- show ornek.lic
+  ```
+
+  Müşteri: Panel → **Lisans ve modüller** → dosyayı yükle. Modüller yeniden kurulum gerekmeden anında açılır.
 
 ## Kim ne yapar?
 
@@ -72,7 +109,11 @@ Depo kökünde `.env` dosyası varsa otomatik okunur (örnek: [.env.example](.en
 
 Ajan yalnızca sunucunun **Ed25519** anahtarıyla imzalanmış ve süresi dolmamış duyuruları gösterir (genel anahtar `agent.json`'da
 sabitlenir). Cihazlar tek tek kayıt anahtarı + cihaz sırrı ile bağlanır, IT onayı olmadan duyuru almaz. Panelde rol bazlı yetki,
-scrypt parola, `httpOnly + SameSite=Strict` oturum çerezi, kaba kuvvet sınırı ve **silinemez denetim kaydı** vardır.
+scrypt parola, 2FA, `httpOnly + SameSite=Strict` oturum çerezi + Origin denetimi (CSRF), 2 saat hareketsizlikte düşen oturum,
+IP ve kullanıcı başına kaba kuvvet sınırı, CSP/HSTS/Permissions-Policy başlıkları ve **hash zincirli, silinemez denetim kaydı**
+(Denetim kaydı → *Bütünlüğü doğrula*) vardır. Yüklenen görsel türü dosya içeriğinden doğrulanır; duyurularda yalnızca sunucuya
+yüklenmiş görseller kullanılabilir. Kayıt anahtarını bilen biri onaylı bir cihazın kimliğine bürünemez (eski cihaz sırrı
+kanıtlanmazsa cihaz IT onayına düşer); ajan yalnızca kendisine gönderilen duyuruya yanıt yazabilir ve mesajları hız sınırlıdır.
 Ajan ekran görüntüsü, pencere başlığı, klavye/fare, tarayıcı geçmişi veya dosya verisi **toplamaz**.
 
 ## Ajanı dağıtma
@@ -81,6 +122,12 @@ Ajan ekran görüntüsü, pencere başlığı, klavye/fare, tarayıcı geçmişi
 2. MSI'ı paylaşıma koyun, GPO → *Software installation (Assigned)*; `deploy/gpo/ErtePano.admx` ile sunucu adresi,
    kayıt anahtarı, imza anahtarı ve OU başına lokasyon verin. Ayrıntı: [deploy/gpo/README.md](deploy/gpo/README.md).
 3. İstemcide `deploy/gpo/Test-ErtePanoClient.ps1`. Etki alanı olmadan deneme: `deploy/gpo/Simulate-GpoInstall.ps1` (yönetici).
+
+## Testler
+
+```bash
+npm test     # 2FA, CSRF, hız sınırı, rol yetkileri/KVKK, yükleme doğrulama, cihaz ele geçirme, WebSocket, denetim zinciri, lisans (32 test)
+```
 
 ## Bilinen eksikler (sıradaki adımlar)
 

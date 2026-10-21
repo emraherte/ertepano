@@ -30,6 +30,13 @@ export const config = {
   sessionHours: int(process.env.SESSION_HOURS, 12),
   /** Çerezleri yalnızca HTTPS'te gönder (üretimde reverse proxy arkasında true yapın). */
   secureCookies: process.env.SECURE_COOKIES === 'true',
+  /**
+   * Önünde reverse proxy (IIS/nginx) varsa onun IP'si/CIDR'ı (virgülle). Boşsa X-Forwarded-For'a güvenilmez —
+   * aksi halde istemci sahte IP yazarak hız sınırlarını atlatabilir ve denetim kaydına sahte IP düşürebilir.
+   */
+  trustProxy: (process.env.TRUST_PROXY ?? '').split(',').map((x) => x.trim()).filter(Boolean),
+  /** Panelin açıldığı ek kökenler (ör. https://pano.sirket.local) — PUBLIC_URL kökeni zaten izinli */
+  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? '').split(',').map((x) => x.trim().replace(/\/$/, '')).filter(Boolean),
   retention: {
     telemetryDays: int(process.env.RETENTION_TELEMETRY_DAYS, 30),
     deliveryDays: int(process.env.RETENTION_DELIVERY_DAYS, 365),

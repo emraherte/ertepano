@@ -34,8 +34,8 @@ export function bootstrap() {
     console.log('\n══════════════════════════════════════════════════════');
     console.log('  İlk yönetici hesabı oluşturuldu');
     console.log('  Kullanıcı adı: admin');
-    console.log(`  Parola       : ${password}`);
-    console.log(`  (ayrıca: ${file})`);
+    console.log(`  Parola dosyası: ${file}`);
+    console.log('  (parola güvenlik için günlüğe yazılmaz; ilk girişte değiştirin)');
     console.log('══════════════════════════════════════════════════════\n');
   }
 

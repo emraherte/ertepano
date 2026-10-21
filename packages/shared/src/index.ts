@@ -156,3 +156,39 @@ export const REPORT_LABELS: Record<ReportKind, string> = {
   it_help: 'IT destek talebi',
   near_miss: 'Ramak kala bildirimi',
 };
+
+// ---- Modüler lisans ----------------------------------------------------------------------------
+
+/** Ayrı satılan modüller. Temel paket (genel duyurular, özel gün rozetleri, kiosk, cihaz kaydı) her lisansta vardır. */
+export const MODULES = ['ik', 'isg', 'it'] as const;
+export type Module = (typeof MODULES)[number];
+
+export const MODULE_LABELS: Record<Module, string> = {
+  ik: 'İK modülü',
+  isg: 'İSG modülü',
+  it: 'IT modülü',
+};
+
+export const MODULE_FEATURES: Record<Module, string[]> = {
+  ik: ['İK duyuruları ve zorunlu okuma', 'Mini anketler', 'Doğum günü, kıdem ve hoş geldin kutlamaları (CSV)'],
+  isg: ['Tam ekran acil durum yayını', 'Canlı "Güvendeyim / Yardım lazım" yoklaması', 'Tatbikat modu ve tutanak', 'Ramak kala bildirimleri', 'İSG talimatları ve zorunlu onay'],
+  it: ['Donanım envanteri ve sağlık uyarıları', 'Excel/CSV dışa aktarım', 'Bakım geri sayımı ve IT duyuruları', 'Siber olay acil uyarısı', '"IT\'ye bildir" talepleri'],
+};
+
+export type LicenseMode = 'trial' | 'licensed' | 'grace' | 'expired';
+
+export interface LicenseInfo {
+  mode: LicenseMode;
+  modules: Module[];
+  customer: string | null;
+  maxDevices: number;
+  deviceCount: number;
+  validUntil: string | null;
+  daysLeft: number | null;
+  licenseId: string | null;
+  /** Yalnızca yöneticiye: lisansı sunucuya bağlamak için kimlik */
+  serverId?: string;
+}
+
+/** Lisanslı modüllere göre yayın yapılabilecek kategoriler (genel her zaman açık). */
+export const licensedCategories = (modules: readonly Module[]): Category[] => ['genel', ...modules];

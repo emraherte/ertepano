@@ -4,6 +4,7 @@ import { Cake, CalendarHeart, FileUp, Flag, Upload } from 'lucide-react';
 import { api, fmtDate, useApi } from '../api';
 import { Badge, Button, Callout, Card, Checkbox, cn, EmptyState, listItem, Modal, PageHeader, SkeletonCard, Switch, Tabs, td, Textarea, th, trCls, useToast } from '../ui';
 import { DaysTab, mdLabel } from './SpecialDays';
+import { ModuleLocked, useLicense } from '../components/license';
 
 interface Employee {
   username: string;
@@ -138,6 +139,7 @@ function PeopleTab() {
 }
 
 export function CalendarPage() {
+  const { has } = useLicense();
   const [tab, setTab] = useState<'days' | 'people'>('days');
   return (
     <>
@@ -151,7 +153,7 @@ export function CalendarPage() {
           { value: 'people', label: 'Doğum günü & kıdem', icon: Cake },
         ]}
       />
-      {tab === 'days' ? <DaysTab /> : <PeopleTab />}
+      {tab === 'days' ? <DaysTab /> : has('ik') ? <PeopleTab /> : <ModuleLocked modules={['ik']} title="Doğum günü ve kıdem kutlamaları İK modülünde" />}
     </>
   );
 }

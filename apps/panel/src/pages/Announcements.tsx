@@ -5,6 +5,7 @@ import { Bot, Building2, Megaphone, Plus, Search, Tag, User as UserIcon, Users }
 import { CATEGORIES, CATEGORY_LABELS, KIND_LABELS, ROLE_CATEGORIES } from '@ertepano/shared';
 import { fmtDateTime, pct, useApi } from '../api';
 import type { Announcement } from '../types';
+import { useLicense } from '../components/license';
 import { Badge, Button, CAT, Card, Cat, Checkbox, cn, EmptyState, Input, listItem, PageHeader, ReadBar, Select, SkeletonCard, StatusBadge, Tabs, td, th, trClick, trCls, useAuth } from '../ui';
 
 const TABS = [
@@ -42,7 +43,8 @@ export function Announcements() {
   const { data } = useApi<{ items: Announcement[] }>(`/api/announcements${qs ? `?${qs}` : ''}`, 15000);
   const needle = q.toLocaleLowerCase('tr');
   const items = (data?.items ?? []).filter((a) => (showAuto || !a.auto) && (!needle || `${a.title} ${a.body}`.toLocaleLowerCase('tr').includes(needle)));
-  const canCreate = ROLE_CATEGORIES[user.role].length > 0;
+  const { categoriesFor } = useLicense();
+  const canCreate = categoriesFor(user.role).length > 0;
 
   return (
     <>

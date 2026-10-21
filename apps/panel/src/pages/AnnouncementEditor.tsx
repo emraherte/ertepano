@@ -32,6 +32,7 @@ import { CATEGORY_LABELS, KIND_LABELS, ROLE_CATEGORIES, type Category, type Kind
 import { api, fromLocalInput, toLocalInput, uploadImage, useApi } from '../api';
 import type { Announcement, Template } from '../types';
 import { Preview } from '../components/Preview';
+import { useLicense } from '../components/license';
 import { PlacementPicker } from '../components/PlacementPicker';
 import { TargetPicker } from '../components/TargetPicker';
 import {
@@ -134,7 +135,8 @@ export function AnnouncementEditor() {
   const { user } = useAuth();
   const nav = useNavigate();
   const toast = useToast();
-  const allowed = ROLE_CATEGORIES[user.role];
+  const { categoriesFor } = useLicense();
+  const allowed = categoriesFor(user.role);
   const templates = useApi<{ items: Template[] }>('/api/templates');
   const existing = useApi<{ item: Announcement }>(id ? `/api/announcements/${id}` : null);
   const [form, setForm] = useState<Form | null>(null);

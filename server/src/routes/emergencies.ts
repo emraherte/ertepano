@@ -8,6 +8,7 @@ import { endAnnouncement, publish } from '../lifecycle.js';
 import { isOnline } from '../hub.js';
 import { uuid } from '../security.js';
 import { EMERGENCY_TEMPLATES } from '../templates.js';
+import { hasModule } from '../license.js';
 
 interface EmergencyRow {
   id: string;
@@ -27,6 +28,15 @@ interface EmergencyRow {
 
 /** IT yalnızca siber olay yayınlar; İSG ve yönetici hepsini. */
 const canStart = (role: Role, type: string) => role === 'admin' || role === 'isg' || (role === 'it' && type === 'siber');
+/** Siber olay IT modülünde, diğer acil durumlar İSG modülünde */
+const typeLicensed = (type: string) => (type === 'siber' ? hasModule('it') : hasModule('isg'));
+
+/** Yoklamadaki kişi adları ve "yardım" notları (sağlık verisi olabilir) yalnızca olayı yönetebilen rollere. */
+function detailFor(e: EmergencyRow, role: Role) {
+  const d = detail(e);
+  if (canStart(role, e.type)) return { ...d, personal: true };
+  return { ...d, personal: false, help: [], safe: [], noResponse: [] };
+}
 
 function detail(e: EmergencyRow) {
   const targets = parseTargets(e.targets);
@@ -80,7 +90,7 @@ function detail(e: EmergencyRow) {
 }
 
 export async function emergencyRoutes(app: FastifyInstance) {
-  app.get('/api/emergency-templates', { preHandler: requireRole() }, async () => ({ items: EMERGENCY_TEMPLATES }));
+  app.get('/api/emergency-templates', { preHandler: requireRole() }, async () => ({ items: EMERGENCY_TEMPLATES.filter((t) => typeLicensed(t.type)) }));
 
   app.get('/api/emergencies', { preHandler: requireRole() }, async () => {
     const rows = db.prepare('SELECT * FROM emergencies ORDER BY started_at DESC LIMIT 100').all() as EmergencyRow[];
@@ -97,15 +107,15 @@ export async function emergencyRoutes(app: FastifyInstance) {
     };
   });
 
-  app.get('/api/emergencies/active', { preHandler: requireRole() }, async () => {
+  app.get('/api/emergencies/active', { preHandler: requireRole() }, async (req) => {
     const e = db.prepare('SELECT * FROM emergencies WHERE ended_at IS NULL ORDER BY started_at DESC LIMIT 1').get() as EmergencyRow | undefined;
-    return { item: e ? detail(e) : null };
+    return { item: e ? detailFor(e, req.user!.role) : null };
   });
 
   app.get('/api/emergencies/:id', { preHandler: requireRole() }, async (req, reply) => {
     const e = db.prepare('SELECT * FROM emergencies WHERE id = ?').get((req.params as { id: string }).id) as EmergencyRow | undefined;
     if (!e) return reply.code(404).send({ error: 'Kayıt bulunamadı' });
-    return { item: detail(e) };
+    return { item: detailFor(e, req.user!.role) };
   });
 
   app.post('/api/emergencies', { preHandler: requireRole(...EMERGENCY_ROLES) }, async (req, reply) => {
@@ -119,6 +129,7 @@ export async function emergencyRoutes(app: FastifyInstance) {
       })
       .parse(req.body);
     if (!canStart(req.user!.role, b.type)) return reply.code(403).send({ error: 'Bu acil durum türünü başlatma yetkiniz yok' });
+    if (!typeLicensed(b.type)) return reply.code(402).send({ error: b.type === 'siber' ? 'Siber olay uyarısı IT modülündedir' : 'Acil durum yayını İSG modülündedir', code: 'module_not_licensed' });
     const active = db.prepare('SELECT id FROM emergencies WHERE ended_at IS NULL').get();
     if (active) return reply.code(409).send({ error: 'Zaten devam eden bir acil durum var. Önce onu bitirin.' });
 
@@ -143,7 +154,7 @@ export async function emergencyRoutes(app: FastifyInstance) {
     })();
     publish(annId);
     audit(req.user!.username, b.drill ? 'drill_started' : 'emergency_started', 'emergency', emergencyId, { type: b.type, targets: b.targets }, req.ip);
-    return { item: detail(db.prepare('SELECT * FROM emergencies WHERE id = ?').get(emergencyId) as EmergencyRow) };
+    return { item: detailFor(db.prepare('SELECT * FROM emergencies WHERE id = ?').get(emergencyId) as EmergencyRow, req.user!.role) };
   });
 
   app.post('/api/emergencies/:id/end', { preHandler: requireRole(...EMERGENCY_ROLES) }, async (req, reply) => {
@@ -154,6 +165,8 @@ export async function emergencyRoutes(app: FastifyInstance) {
     const e = db.prepare('SELECT * FROM emergencies WHERE id = ?').get(id) as EmergencyRow | undefined;
     if (!e) return reply.code(404).send({ error: 'Kayıt bulunamadı' });
     if (e.ended_at) return reply.code(400).send({ error: 'Bu acil durum zaten bitmiş' });
+    // IT yangın/deprem alarmını bitirip "tehlike geçti" yayınlayamaz; yalnızca başlatabileceği türü bitirir
+    if (!canStart(req.user!.role, e.type)) return reply.code(403).send({ error: 'Bu acil durumu sonlandırma yetkiniz yok' });
     const now = nowIso();
     db.prepare('UPDATE emergencies SET ended_at = ?, ended_by = ?, end_note = ? WHERE id = ?').run(now, req.user!.username, b.note ?? null, id);
     if (e.announcement_id) endAnnouncement(e.announcement_id);
@@ -176,6 +189,6 @@ export async function emergencyRoutes(app: FastifyInstance) {
       publish(annId);
     }
     audit(req.user!.username, e.drill ? 'drill_ended' : 'emergency_ended', 'emergency', id, { mode: b.mode, note: b.note }, req.ip);
-    return { item: detail(db.prepare('SELECT * FROM emergencies WHERE id = ?').get(id) as EmergencyRow) };
+    return { item: detailFor(db.prepare('SELECT * FROM emergencies WHERE id = ?').get(id) as EmergencyRow, req.user!.role) };
   });
 }

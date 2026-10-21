@@ -5,3 +5,4 @@ data/
 .env
 apps/agent/src-tauri/target/
 apps/agent/src-tauri/gen/
+*.lic

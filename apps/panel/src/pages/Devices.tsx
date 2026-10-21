@@ -29,7 +29,9 @@ import {
   trCls,
   useToast,
   useConfirm,
+  Callout,
 } from '../ui';
+import { useLicense } from '../components/license';
 
 type Filter = 'all' | 'online' | 'pending' | 'alerts' | 'offline';
 
@@ -260,6 +262,7 @@ export function Devices() {
 
   const pick = (f: Filter) => setFilter((cur) => (cur === f && f !== 'all' ? 'all' : f));
   const allSelected = items.length > 0 && items.every((d) => sel.has(d.id));
+  const hasIt = useLicense().has('it');
 
   return (
     <>
@@ -268,11 +271,18 @@ export function Devices() {
         title="Cihazlar"
         description="Ajanı kurulu tüm bilgisayarlar, anlık durumları ve IT uyarıları."
         actions={
-          <Button href="/api/devices.csv" icon={Download}>
-            Excel / CSV
-          </Button>
+          hasIt && (
+            <Button href="/api/devices.csv" icon={Download}>
+              Excel / CSV
+            </Button>
+          )
         }
       />
+      {!hasIt && (
+        <Callout tone="info" className="mb-6" title="Donanım envanteri IT modülündedir">
+          Temel pakette cihazlar yalnızca duyuru hedeflemek için kaydedilir. İşlemci, bellek, disk, açık kalma süresi, sağlık uyarıları ve Excel dışa aktarım için IT modülünü ekleyin.
+        </Callout>
+      )}
 
       {!data ? (
         <>

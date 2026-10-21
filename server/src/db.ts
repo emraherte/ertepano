@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { config } from './config.js';
@@ -216,6 +217,26 @@ const MIGRATIONS: string[] = [
   ALTER TABLE special_days ADD COLUMN opacity REAL;
   UPDATE special_days SET kind = 'badge', position = 'bottom-right' WHERE month_day = '11-10' AND kind = 'banner';
   `,
+  // 4: iki faktörlü doğrulama + kısıtlı (yalnız 2FA kurulumu) oturumlar
+  `
+  ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN mfa_secret TEXT;
+  ALTER TABLE users ADD COLUMN mfa_pending_secret TEXT;
+  ALTER TABLE users ADD COLUMN mfa_last_step INTEGER;
+  ALTER TABLE users ADD COLUMN mfa_recovery TEXT;
+  ALTER TABLE users ADD COLUMN mfa_enrolled_at TEXT;
+  ALTER TABLE users ADD COLUMN password_changed_at TEXT;
+  ALTER TABLE sessions ADD COLUMN scope TEXT NOT NULL DEFAULT 'full';
+  ALTER TABLE sessions ADD COLUMN last_seen_at TEXT;
+  `,
+  // 5: denetim kaydı bütünlüğü — her satır öncekinin özetini taşır; son 1 yılın kaydı silinemez
+  `
+  ALTER TABLE audit_log ADD COLUMN prev_hash TEXT;
+  ALTER TABLE audit_log ADD COLUMN hash TEXT;
+  CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit_log
+    WHEN OLD.created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-365 days')
+    BEGIN SELECT RAISE(ABORT, 'audit_log: son 1 yılın kaydı silinemez'); END;
+  `,
 ];
 
 function migrate() {
@@ -240,14 +261,56 @@ export function setSetting(key: string, value: string) {
   db.prepare('INSERT INTO settings(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
 }
 
+export interface AuditFields {
+  actor: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  details: string | null;
+  ip: string | null;
+  created_at: string;
+}
+
+/** Satırın özeti: önceki satırın özeti + bu satırın alanları. Bir satır değişir/silinirse zincir kırılır. */
+export function auditHash(prev: string, r: AuditFields) {
+  return crypto
+    .createHash('sha256')
+    .update(JSON.stringify([prev, r.actor, r.action, r.entity, r.entity_id, r.details, r.ip, r.created_at]))
+    .digest('hex');
+}
+
+const insertAudit = db.transaction((r: AuditFields) => {
+  const last = db.prepare('SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1').get() as { hash: string | null } | undefined;
+  const prev = last?.hash ?? 'genesis';
+  db.prepare('INSERT INTO audit_log(actor, action, entity, entity_id, details, ip, created_at, prev_hash, hash) VALUES(?,?,?,?,?,?,?,?,?)').run(
+    r.actor, r.action, r.entity, r.entity_id, r.details, r.ip, r.created_at, prev, auditHash(prev, r),
+  );
+});
+
 export function audit(actor: string | null, action: string, entity?: string, entityId?: string | null, details?: unknown, ip?: string) {
-  db.prepare('INSERT INTO audit_log(actor, action, entity, entity_id, details, ip, created_at) VALUES(?,?,?,?,?,?,?)').run(
+  insertAudit({
     actor,
     action,
-    entity ?? null,
-    entityId ?? null,
-    details === undefined ? null : JSON.stringify(details),
-    ip ?? null,
-    nowIso(),
-  );
+    entity: entity ?? null,
+    entity_id: entityId ?? null,
+    details: details === undefined ? null : JSON.stringify(details),
+    ip: ip ?? null,
+    created_at: nowIso(),
+  });
+}
+
+/** Zinciri baştan doğrula (zincir öncesi eski kayıtlar ve süresi dolup silinen baş kısım hariç). */
+export function verifyAuditChain(): { ok: boolean; checked: number; brokenAt: number | null } {
+  const rows = db.prepare('SELECT id, actor, action, entity, entity_id, details, ip, created_at, prev_hash, hash FROM audit_log WHERE hash IS NOT NULL ORDER BY id').iterate() as Iterable<
+    AuditFields & { id: number; prev_hash: string; hash: string }
+  >;
+  let prev: string | null = null;
+  let checked = 0;
+  for (const r of rows) {
+    if (prev !== null && r.prev_hash !== prev) return { ok: false, checked, brokenAt: r.id };
+    if (auditHash(r.prev_hash, r) !== r.hash) return { ok: false, checked, brokenAt: r.id };
+    prev = r.hash;
+    checked++;
+  }
+  return { ok: true, checked, brokenAt: null };
 }

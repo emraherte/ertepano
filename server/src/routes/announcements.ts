@@ -6,6 +6,7 @@ import { audit, db, nowIso } from '../db.js';
 import { annDto, type AnnRow, placementColumns, placementSchema, approvedDevices, countTargets, deviceMatches, parseTargets } from '../announcements.js';
 import { endAnnouncement, publish, republish } from '../lifecycle.js';
 import { uuid } from '../security.js';
+import { publishCategories } from '../license.js';
 import { TEMPLATES } from '../templates.js';
 
 const isoOrNull = z.string().datetime({ offset: true }).nullable().optional();
@@ -16,7 +17,7 @@ const annInput = z.object({
   title: z.string().trim().min(1, 'Başlık gerekli').max(140),
   body: z.string().max(2000).default(''),
   emoji: z.string().max(16).nullable().optional(),
-  imageUrl: z.string().max(500).nullable().optional(),
+  imageUrl: z.string().regex(/^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp)$/, 'Görsel yalnızca panelden yüklenebilir').nullable().optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
   requireAck: z.boolean().default(false),
   ackLabel: z.string().max(40).nullable().optional(),
@@ -59,7 +60,7 @@ function statsFor(ids: string[]) {
 
 export async function announcementRoutes(app: FastifyInstance) {
   app.get('/api/templates', { preHandler: requireRole() }, async (req) => {
-    const allowed = ROLE_CATEGORIES[req.user!.role];
+    const allowed = publishCategories(req.user!.role);
     return { items: TEMPLATES.filter((t) => allowed.includes(t.category)) };
   });
 
@@ -113,6 +114,7 @@ export async function announcementRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const a = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow | undefined;
     if (!a) return reply.code(404).send({ error: 'Duyuru bulunamadı' });
+    const canSeePeople = ROLE_CATEGORIES[req.user!.role].includes(a.category);
     const deliveries = db
       .prepare(
         `SELECT d.device_id deviceId, v.hostname, d.user_login userLogin, v.location, v.department, d.sent_at sentAt, d.seen_at seenAt,
@@ -128,13 +130,15 @@ export async function announcementRoutes(app: FastifyInstance) {
       stats: { targets: countTargets(parseTargets(a.targets)), ...s },
       answers,
       // Anket yanıtları kişiden bağımsız gösterilir; zorunlu onaylarda kim/ne zaman listesi denetim kanıtıdır.
-      deliveries: a.kind === 'survey' ? deliveries.map((d) => ({ ...d, answer: null, userLogin: null })) : deliveries,
+      // Kim, ne zaman onayladı listesi: o kategoride yayın yapabilen roller görür; diğerleri yalnızca sayıları.
+      personal: canSeePeople,
+      deliveries: !canSeePeople ? [] : a.kind === 'survey' ? deliveries.map((d) => ({ ...d, answer: null, userLogin: null })) : deliveries,
     };
   });
 
   app.post('/api/announcements', { preHandler: requireRole('ik', 'isg', 'it') }, async (req, reply) => {
     const b = annInput.parse(req.body);
-    if (!ROLE_CATEGORIES[req.user!.role].includes(b.category)) return reply.code(403).send({ error: 'Bu kategoride yayın yetkiniz yok' });
+    if (!publishCategories(req.user!.role).includes(b.category)) return reply.code(403).send({ error: 'Bu kategoride yayın yetkiniz ya da lisansınız yok' });
     const err = validateKind(b);
     if (err) return reply.code(400).send({ error: err });
     const id = uuid();
@@ -161,7 +165,7 @@ export async function announcementRoutes(app: FastifyInstance) {
     if (a.kind === 'fullscreen') return reply.code(400).send({ error: 'Acil durum yayınları Acil Durum sayfasından yönetilir' });
     if (a.status === 'ended') return reply.code(400).send({ error: 'Biten duyuru düzenlenemez; kopyalayıp yeniden yayınlayın' });
     const b = annInput.partial().parse(req.body);
-    const allowed = ROLE_CATEGORIES[req.user!.role];
+    const allowed = publishCategories(req.user!.role);
     if (!allowed.includes(a.category) || (b.category && !allowed.includes(b.category))) {
       return reply.code(403).send({ error: 'Bu kategoride yetkiniz yok' });
     }
@@ -187,7 +191,7 @@ export async function announcementRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const a = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow | undefined;
     if (!a) return reply.code(404).send({ error: 'Duyuru bulunamadı' });
-    if (!ROLE_CATEGORIES[req.user!.role].includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz yok' });
+    if (!publishCategories(req.user!.role).includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz ya da lisansınız yok' });
     const row = publish(id)!;
     audit(req.user!.username, 'announcement_published', 'announcement', id, undefined, req.ip);
     return { item: annDto(row) };
@@ -197,7 +201,7 @@ export async function announcementRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const a = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow | undefined;
     if (!a) return reply.code(404).send({ error: 'Duyuru bulunamadı' });
-    if (!ROLE_CATEGORIES[req.user!.role].includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz yok' });
+    if (!publishCategories(req.user!.role).includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz ya da lisansınız yok' });
     endAnnouncement(id);
     audit(req.user!.username, 'announcement_ended', 'announcement', id, undefined, req.ip);
     return { ok: true };
@@ -207,7 +211,7 @@ export async function announcementRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const a = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow | undefined;
     if (!a) return reply.code(404).send({ error: 'Duyuru bulunamadı' });
-    if (!ROLE_CATEGORIES[req.user!.role].includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz yok' });
+    if (!publishCategories(req.user!.role).includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz ya da lisansınız yok' });
     if (a.status === 'active') return reply.code(400).send({ error: 'Önce yayını bitirin' });
     if (a.status === 'ended' && a.require_ack) return reply.code(400).send({ error: 'Zorunlu onaylı duyurular denetim kanıtıdır, silinemez' });
     db.prepare('DELETE FROM announcements WHERE id = ?').run(id);

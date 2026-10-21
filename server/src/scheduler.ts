@@ -2,6 +2,7 @@ import { config } from './config.js';
 import { db, nowIso } from './db.js';
 import { publish, tickLifecycle } from './lifecycle.js';
 import { uuid } from './security.js';
+import { hasModule } from './license.js';
 
 /** Kurumun saat dilimindeki bugünün tarihi: "2026-10-29". */
 export function localToday(d = new Date()): string {
@@ -81,6 +82,7 @@ export function runDailyAutomation() {
     });
   }
 
+  if (!hasModule('ik')) return;
   const people = db
     .prepare('SELECT * FROM employees WHERE celebrate = 1 AND (birth_md = ? OR substr(start_date, 6) = ?)')
     .all(md, md) as { username: string; full_name: string; birth_md: string | null; start_date: string | null }[];
@@ -127,7 +129,8 @@ export function purge() {
   db.prepare('DELETE FROM deliveries WHERE announcement_id IN (SELECT id FROM announcements WHERE status = \'ended\' AND ends_at < ?)').run(ago(r.complianceDays));
   db.prepare('DELETE FROM emergencies WHERE ended_at < ?').run(ago(r.complianceDays));
   db.prepare("DELETE FROM reports WHERE status = 'closed' AND updated_at < ?").run(ago(r.complianceDays));
-  db.prepare('DELETE FROM audit_log WHERE created_at < ?').run(ago(r.complianceDays));
+  // denetim kaydı en az 1 yıl tutulur (veritabanı tetikleyicisi de daha yenisinin silinmesine izin vermez)
+  db.prepare('DELETE FROM audit_log WHERE created_at < ?').run(ago(Math.max(r.complianceDays, 366)));
 }
 
 export function startScheduler() {

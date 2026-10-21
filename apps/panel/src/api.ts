@@ -7,6 +7,10 @@ export class ApiError extends Error {
 }
 
 let onUnauthorized: () => void = () => {};
+let onMfaSetupRequired: () => void = () => {};
+export const setMfaSetupRequiredHandler = (fn: () => void) => {
+  onMfaSetupRequired = fn;
+};
 export const setUnauthorizedHandler = (fn: () => void) => {
   onUnauthorized = fn;
 };
@@ -21,6 +25,7 @@ export async function api<T = unknown>(path: string, opts: { method?: string; bo
   if (res.status === 401 && !path.startsWith('/api/auth/login')) onUnauthorized();
   const text = await res.text();
   const data = text ? JSON.parse(text) : {};
+  if (res.status === 403 && data.code === 'mfa_setup_required') onMfaSetupRequired();
   if (!res.ok) throw new ApiError(res.status, data.error ?? `Hata (${res.status})`);
   return data as T;
 }

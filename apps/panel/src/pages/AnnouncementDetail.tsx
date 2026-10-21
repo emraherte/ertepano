@@ -21,6 +21,7 @@ import { KIND_LABELS, ROLE_CATEGORIES } from '@ertepano/shared';
 import { api, fmtDateTime, pct, useApi } from '../api';
 import type { Announcement, Stats } from '../types';
 import { Preview } from '../components/Preview';
+import { useLicense } from '../components/license';
 import {
   Badge,
   Button,
@@ -66,9 +67,10 @@ type Confirm = { kind: 'end' | 'delete' } | null;
 export function AnnouncementDetail() {
   const { id } = useParams();
   const { user } = useAuth();
+  const { categoriesFor } = useLicense();
   const nav = useNavigate();
   const toast = useToast();
-  const { data, reload } = useApi<{ item: Announcement; stats: Stats; answers: Record<string, number>; deliveries: DeliveryRow[] }>(`/api/announcements/${id}`, 10000);
+  const { data, reload } = useApi<{ item: Announcement; stats: Stats; answers: Record<string, number>; deliveries: DeliveryRow[]; personal?: boolean }>(`/api/announcements/${id}`, 10000);
   const [filter, setFilter] = useState<'all' | 'pending' | 'done'>('all');
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
@@ -89,7 +91,7 @@ export function AnnouncementDetail() {
   if (!data) return <PageSkeleton />;
   const a = data.item;
   const s = data.stats;
-  const canEdit = ROLE_CATEGORIES[user.role].includes(a.category) && a.kind !== 'fullscreen';
+  const canEdit = categoriesFor(user.role).includes(a.category) && a.kind !== 'fullscreen';
   const base = Math.max(s.sent, 1);
   const doneCount = a.requireAck ? s.acked : a.kind === 'survey' ? s.answered : s.seen;
   const doneLabel = a.requireAck ? 'Onayladı' : a.kind === 'survey' ? 'Oy verdi' : 'Okudu / kapattı';
@@ -269,7 +271,9 @@ export function AnnouncementDetail() {
                 </>
               }
             />
-            {rows.length === 0 ? (
+            {data.personal === false ? (
+              <EmptyState icon={Hourglass} title="Kişi bazında liste gizli" description="KVKK gereği kim, ne zaman onayladı bilgisi yalnızca bu kategoride yayın yetkisi olan rollere gösterilir. Yukarıdaki sayılar herkese açıktır." />
+            ) : rows.length === 0 ? (
               <EmptyState icon={Hourglass} title="Henüz kayıt yok" description="Duyuru hedefteki cihazlara ulaştıkça burada listelenir." />
             ) : (
               <div className="max-h-[520px] overflow-auto">

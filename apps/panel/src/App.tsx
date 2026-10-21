@@ -21,11 +21,15 @@ import {
   Siren,
   Sun,
   UserCog,
+  BadgeCheck,
+  Lock,
+  Sparkles,
   Users as UsersIcon,
   X,
 } from 'lucide-react';
-import { EMERGENCY_ROLES, ROLE_CATEGORIES, ROLE_LABELS, type Role } from '@ertepano/shared';
-import { api, setUnauthorizedHandler, useApi } from './api';
+import { EMERGENCY_ROLES, type LicenseInfo, type Module, ROLE_LABELS, type Role } from '@ertepano/shared';
+import { api, setMfaSetupRequiredHandler, setUnauthorizedHandler, useApi } from './api';
+import { MfaRequiredScreen } from './pages/MfaRequired';
 import type { User } from './types';
 import { AuthContext, Avatar, cn, IconButton, Kbd, LiveDot, useTheme } from './ui';
 import { type Command, CommandPalette, useCommandHotkey } from './components/CommandPalette';
@@ -44,6 +48,8 @@ import { Audit } from './pages/Audit';
 import { Account } from './pages/Account';
 import { SystemSettings } from './pages/SystemSettings';
 import { Kiosk } from './pages/Kiosk';
+import { LicensePage } from './pages/License';
+import { LicenseProvider, ModuleLocked, useLicense } from './components/license';
 
 interface NavItem {
   to: string;
@@ -52,6 +58,8 @@ interface NavItem {
   roles?: Role[];
   danger?: boolean;
   count?: number;
+  /** Bu modüllerden biri lisanslıysa açık; değilse kilitli gösterilir */
+  modules?: Module[];
 }
 
 export function App() {
@@ -65,13 +73,16 @@ function Authed() {
 
   useEffect(() => {
     setUnauthorizedHandler(() => setUser(null));
-    api<{ user: User }>('/api/auth/me').then((r) => setUser(r.user), () => setUser(null));
+    const loadMe = () => api<{ user: User }>('/api/auth/me').then((r) => setUser(r.user), () => setUser(null));
+    setMfaSetupRequiredHandler(loadMe);
+    loadMe();
   }, []);
 
   if (user === undefined) return <div className="app-backdrop" />;
   if (!user) return <Login onLogin={setUser} />;
 
   const logout = () => api('/api/auth/logout', { method: 'POST' }).finally(() => setUser(null));
+  if (user.mfaSetupRequired) return <MfaRequiredScreen user={user} onDone={setUser} onLogout={logout} />;
   return (
     <AuthContext.Provider value={{ user, logout }}>
       <Shell user={user} logout={logout} />
@@ -79,7 +90,17 @@ function Authed() {
   );
 }
 
-function Shell({ user, logout }: { user: User; logout: () => void }) {
+function Shell(props: { user: User; logout: () => void }) {
+  const lic = useApi<LicenseInfo>('/api/license', 5 * 60_000);
+  return (
+    <LicenseProvider license={lic.data} reload={lic.reload}>
+      <ShellInner {...props} />
+    </LicenseProvider>
+  );
+}
+
+function ShellInner({ user, logout }: { user: User; logout: () => void }) {
+  const { license, any, categoriesFor } = useLicense();
   const location = useLocation();
   const nav = useNavigate();
   const { dark, toggle } = useTheme();
@@ -93,20 +114,20 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
   const active = em.data?.item;
   const openReports = Object.values(dash.data?.openReports ?? {}).reduce((a, b) => a + b, 0);
   const can = (roles?: Role[]) => !roles || user.role === 'admin' || roles.includes(user.role);
-  const canPublish = ROLE_CATEGORIES[user.role].length > 0;
+  const canPublish = categoriesFor(user.role).length > 0;
 
   const sections: { title?: string; items: NavItem[] }[] = [
     {
       items: [
         { to: '/', label: 'Pano', icon: LayoutDashboard },
         { to: '/duyurular', label: 'Duyurular', icon: Megaphone },
-        { to: '/acil', label: 'Acil Durum', icon: Siren, danger: true },
+        { to: '/acil', label: 'Acil Durum', icon: Siren, danger: true, modules: ['isg', 'it'] },
       ],
     },
     {
       title: 'Takip',
       items: [
-        { to: '/bildirimler', label: 'Çalışan bildirimleri', icon: Inbox, roles: ['it', 'isg'], count: openReports },
+        { to: '/bildirimler', label: 'Çalışan bildirimleri', icon: Inbox, roles: ['it', 'isg'], count: openReports, modules: ['it', 'isg'] },
         { to: '/cihazlar', label: 'Cihazlar', icon: Monitor, roles: ['it'], count: dash.data?.devices.pending },
         { to: '/takvim', label: 'Takvim & kutlamalar', icon: CalendarHeart, roles: ['ik'] },
       ],
@@ -117,7 +138,8 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
         { to: '/ajan-kurulumu', label: 'Ajan kurulumu', icon: Puzzle, roles: ['it'] },
         { to: '/kullanicilar', label: 'Kullanıcılar', icon: UsersIcon, roles: ['admin'] },
         { to: '/denetim', label: 'Denetim kaydı', icon: ScrollText, roles: ['admin'] },
-        { to: '/sistem', label: 'Sistem & LDAP', icon: Settings2, roles: ['admin'] },
+        { to: '/sistem', label: 'Sistem & güvenlik', icon: Settings2, roles: ['admin'] },
+        { to: '/lisans', label: 'Lisans ve modüller', icon: BadgeCheck, roles: ['admin'] },
         { to: '/hesabim', label: 'Hesabım', icon: UserCog },
       ],
     },
@@ -177,7 +199,8 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
                         >
                           <n.icon size={18} strokeWidth={isActive ? 2.3 : 2} className={cn(isActive && (n.danger ? 'text-rose-500' : 'text-emerald-600 dark:text-emerald-400'))} />
                           {n.label}
-                          {!!n.count && (
+                          {!any(n.modules) && <Lock size={13} className="ml-auto text-slate-400" />}
+                          {!!n.count && any(n.modules) && (
                             <span className="ml-auto rounded-full bg-linear-to-br from-rose-500 to-red-600 px-2 py-0.5 text-[11px] font-semibold text-white shadow-sm shadow-rose-500/30 tabular-nums">{n.count}</span>
                           )}
                         </span>
@@ -267,6 +290,28 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
           </div>
         </header>
 
+        {license && (license.mode === 'trial' || license.mode === 'grace' || license.mode === 'expired') && (
+          <div className="no-print px-4 pt-3 sm:px-6 lg:px-8">
+            <Link
+              to={user.role === 'admin' ? '/lisans' : '/'}
+              className={cn(
+                'flex items-center gap-3 rounded-2xl border px-4 py-2.5 text-[13px] font-medium transition-all duration-300 hover:-translate-y-0.5',
+                license.mode === 'trial'
+                  ? 'border-sky-500/20 bg-sky-500/[0.07] text-sky-800 dark:text-sky-200'
+                  : 'border-amber-500/30 bg-amber-500/[0.08] text-amber-900 dark:text-amber-200',
+              )}
+            >
+              {license.mode === 'trial' ? <Sparkles size={16} /> : <BadgeCheck size={16} />}
+              {license.mode === 'trial'
+                ? `Deneme sürümü: tüm modüller ${license.daysLeft} gün daha açık`
+                : license.mode === 'grace'
+                  ? `Lisans süresi doldu — ${license.daysLeft} gün içinde yenilenmezse modüller kapanır`
+                  : 'Lisans geçersiz ya da süresi doldu — yalnızca temel paket çalışıyor'}
+              {user.role === 'admin' && <span className="ml-auto opacity-70">Lisansı yönet →</span>}
+            </Link>
+          </div>
+        )}
+
         <AnimatePresence>
           {active && (
             <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="no-print px-4 pt-3 sm:px-6 lg:px-8">
@@ -304,8 +349,8 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
                 <Route path="/duyurular/yeni" element={<AnnouncementEditor />} />
                 <Route path="/duyurular/:id" element={<AnnouncementDetail />} />
                 <Route path="/duyurular/:id/duzenle" element={<AnnouncementEditor />} />
-                <Route path="/acil" element={<Emergency canAct={EMERGENCY_ROLES.includes(user.role)} onChange={em.reload} />} />
-                {can(['it', 'isg']) && <Route path="/bildirimler" element={<Reports />} />}
+                <Route path="/acil" element={any(['isg', 'it']) ? <Emergency canAct={EMERGENCY_ROLES.includes(user.role)} onChange={em.reload} /> : <ModuleLocked modules={['isg']} />} />
+                {can(['it', 'isg']) && <Route path="/bildirimler" element={any(['it', 'isg']) ? <Reports /> : <ModuleLocked modules={user.role === 'isg' ? ['isg'] : ['it']} />} />}
                 {can(['it']) && <Route path="/cihazlar" element={<Devices />} />}
                 {can(['ik']) && <Route path="/takvim" element={<CalendarPage />} />}
                 {can(['it']) && <Route path="/ajan-kurulumu" element={<AgentSetup />} />}
@@ -313,6 +358,7 @@ function Shell({ user, logout }: { user: User; logout: () => void }) {
                 {can(['admin']) && <Route path="/denetim" element={<Audit />} />}
                 {can(['admin']) && <Route path="/sistem" element={<SystemSettings />} />}
                 <Route path="/hesabim" element={<Account />} />
+                {can(['admin']) && <Route path="/lisans" element={<LicensePage />} />}
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </motion.div>

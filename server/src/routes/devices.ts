@@ -6,6 +6,7 @@ import { config } from '../config.js';
 import { audit, db, nowIso } from '../db.js';
 import { disconnectDevice, isOnline, syncDevice } from '../hub.js';
 import { newEnrollKey, publicKeyBase64, uuid } from '../security.js';
+import { deviceLimitReached, hasModule, licenseInfo, REPORT_MODULE, requireModule } from '../license.js';
 
 interface DeviceFull {
   id: string;
@@ -45,6 +46,15 @@ export function deviceAlerts(d: DeviceFull, online: boolean): string[] {
 
 export function deviceDto(d: DeviceFull) {
   const online = isOnline(d.id);
+  // Donanım ayrıntıları ve uyarılar IT modülünde; temel pakette yalnızca kimlik/durum
+  if (!hasModule('it')) {
+    return {
+      id: d.id, hostname: d.hostname, mac: null, ip: null, os: null, agentVersion: d.agent_version, lastUser: d.last_user,
+      location: d.location, department: d.department, note: d.note, status: d.status, cpuModel: null, cpuLoad: null,
+      ramTotalMb: null, ramFreeMb: null, diskTotalGb: null, diskFreeGb: null, uptimeSec: null, firstSeen: d.first_seen,
+      lastSeen: d.last_seen, online, alerts: d.status === 'pending' ? ['Onay bekliyor'] : [],
+    };
+  }
   return {
     id: d.id, hostname: d.hostname, mac: d.mac, ip: d.ip, os: d.os, agentVersion: d.agent_version, lastUser: d.last_user,
     location: d.location, department: d.department, note: d.note, status: d.status, cpuModel: d.cpu_model, cpuLoad: d.cpu_load,
@@ -72,7 +82,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     return { items: rows.map(deviceDto) };
   });
 
-  app.get('/api/devices.csv', itOnly, async (req, reply) => {
+  app.get('/api/devices.csv', { preHandler: [requireRole('it'), requireModule('it')] }, async (req, reply) => {
     const rows = (db.prepare('SELECT * FROM devices ORDER BY hostname').all() as DeviceFull[]).map(deviceDto);
     const head = ['Bilgisayar', 'Durum', 'Çevrimiçi', 'Kullanıcı', 'Lokasyon', 'Departman', 'IP', 'MAC', 'İşletim sistemi', 'CPU', 'RAM (GB)',
       'Disk (GB)', 'Disk boş (GB)', 'Açık kalma (gün)', 'Ajan sürümü', 'Son görülme', 'Uyarılar'];
@@ -93,7 +103,10 @@ export async function deviceRoutes(app: FastifyInstance) {
     const telemetry = db
       .prepare('SELECT cpu_load cpuLoad, ram_free_mb ramFreeMb, disk_free_gb diskFreeGb, collected_at at FROM telemetry WHERE device_id = ? AND collected_at >= ? ORDER BY collected_at')
       .all(id, new Date(Date.now() - 7 * DAY).toISOString());
-    const reports = db.prepare('SELECT id, kind, text, status, created_at createdAt FROM reports WHERE device_id = ? ORDER BY created_at DESC LIMIT 20').all(id);
+    const kinds = visibleKinds(req.user!.role);
+    const reports = kinds.length
+      ? db.prepare(`SELECT id, kind, text, status, created_at createdAt FROM reports WHERE device_id = ? AND kind IN (${kinds.map(() => '?').join(',')}) ORDER BY created_at DESC LIMIT 20`).all(id, ...kinds)
+      : [];
     return { item: deviceDto(d), telemetry, reports };
   });
 
@@ -109,6 +122,9 @@ export async function deviceRoutes(app: FastifyInstance) {
       .parse(req.body);
     const d = db.prepare('SELECT * FROM devices WHERE id = ?').get(id) as DeviceFull | undefined;
     if (!d) return reply.code(404).send({ error: 'Cihaz bulunamadı' });
+    if (b.status === 'approved' && d.status !== 'approved' && deviceLimitReached()) {
+      return reply.code(402).send({ error: `Lisans cihaz sınırına ulaşıldı (${licenseInfo().maxDevices}). Lisansınızı yükseltin ya da kullanılmayan cihazları silin.`, code: 'device_limit' });
+    }
     db.prepare('UPDATE devices SET location = ?, department = ?, note = ?, status = ? WHERE id = ?').run(
       b.location === undefined ? d.location : b.location || null,
       b.department === undefined ? d.department : b.department || null,
@@ -132,9 +148,17 @@ export async function deviceRoutes(app: FastifyInstance) {
         department: z.string().trim().max(80).optional(),
       })
       .parse(req.body);
+    let room = Math.max(0, licenseInfo().maxDevices - licenseInfo().deviceCount);
+    let skipped = 0;
     const tx = db.transaction(() => {
       for (const id of b.ids) {
-        if (b.approve) db.prepare("UPDATE devices SET status = 'approved' WHERE id = ? AND status = 'pending'").run(id);
+        if (b.approve) {
+          const pending = db.prepare("SELECT 1 FROM devices WHERE id = ? AND status = 'pending'").get(id);
+          if (pending && room > 0) {
+            db.prepare("UPDATE devices SET status = 'approved' WHERE id = ?").run(id);
+            room--;
+          } else if (pending) skipped++;
+        }
         if (b.location !== undefined) db.prepare('UPDATE devices SET location = ? WHERE id = ?').run(b.location || null, id);
         if (b.department !== undefined) db.prepare('UPDATE devices SET department = ? WHERE id = ?').run(b.department || null, id);
       }
@@ -142,7 +166,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     tx();
     b.ids.forEach(syncDevice);
     audit(req.user!.username, 'devices_bulk_updated', 'device', null, b, req.ip);
-    return { ok: true, count: b.ids.length };
+    return { ok: true, count: b.ids.length, skipped, ...(skipped ? { error: `${skipped} cihaz lisans sınırı nedeniyle onaylanmadı` } : {}) };
   });
 
   app.delete('/api/devices/:id', itOnly, async (req) => {
@@ -196,7 +220,9 @@ export async function deviceRoutes(app: FastifyInstance) {
   // ---- Çalışan bildirimleri (IT'ye bildir / ramak kala) ----
 
   const visibleKinds = (role: Role): ReportKind[] =>
-    role === 'admin' ? ['it_help', 'near_miss'] : role === 'it' ? ['it_help'] : role === 'isg' ? ['near_miss'] : [];
+    (role === 'admin' ? (['it_help', 'near_miss'] as ReportKind[]) : role === 'it' ? (['it_help'] as ReportKind[]) : role === 'isg' ? (['near_miss'] as ReportKind[]) : []).filter((k) =>
+      hasModule(REPORT_MODULE[k]),
+    );
 
   app.get('/api/reports', { preHandler: requireRole('it', 'isg') }, async (req) => {
     const kinds = visibleKinds(req.user!.role);

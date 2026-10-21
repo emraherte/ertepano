@@ -6,6 +6,8 @@ import { config } from './config.js';
 import { audit, db, nowIso } from './db.js';
 import { activeForDevice, type AnnRow, type DeviceRow, deviceMatches, parseTargets, signItem } from './announcements.js';
 import { publicKeyBase64, randomToken, safeEqualHex, sha256, uuid } from './security.js';
+import { Limiter } from './auth.js';
+import { deviceLimitReached, hasModule, REPORT_MODULE } from './license.js';
 
 // ---- Bağlı ajanlar ---------------------------------------------------------------------------
 
@@ -14,11 +16,35 @@ interface Conn {
   deviceId: string;
   base: string;
   alive: boolean;
+  /** jeton kovası: saniyede 1 mesaj, en fazla 30 birikir */
+  tokens: number;
+  refillAt: number;
+  dropped: number;
 }
+
+const BUCKET_MAX = 30;
+/** Cihaz başına saatte en fazla bu kadar çalışan bildirimi (IT/İSG kuyruğu doldurulamasın) */
+const REPORTS_PER_HOUR = 10;
+const reportTimes = new Map<string, number[]>();
+
+function takeToken(c: Conn): boolean {
+  const now = Date.now();
+  c.tokens = Math.min(BUCKET_MAX, c.tokens + (now - c.refillAt) / 1000);
+  c.refillAt = now;
+  if (c.tokens < 1) return false;
+  c.tokens -= 1;
+  return true;
+}
+
+/** Duyuru bu cihaza gerçekten gönderildi mi? (başka cihazın duyurusuna onay/yanıt yazılamasın) */
+const wasSentTo = (annId: string, deviceId: string) =>
+  !!db.prepare('SELECT 1 FROM deliveries WHERE announcement_id = ? AND device_id = ? AND sent_at IS NOT NULL').get(annId, deviceId);
 
 const conns = new Map<string, Conn>();
 const lastTelemetryRow = new Map<string, number>();
 const TELEMETRY_ROW_EVERY_MS = 10 * 60_000;
+
+const enrollLimiter = new Limiter(30, 10 * 60_000);
 
 export const isOnline = (deviceId: string) => conns.has(deviceId);
 export const onlineCount = () => conns.size;
@@ -96,6 +122,14 @@ const telemetrySchema = z.object({
 function onTelemetry(c: Conn, t: Telemetry) {
   const before = getDevice(c.deviceId);
   const now = nowIso();
+  if (!hasModule('it')) {
+    // Envanter IT modülünde: temel pakette donanım verisi saklanmaz (KVKK veri minimizasyonu)
+    db.prepare("UPDATE devices SET hostname = ?, last_user = NULLIF(?, ''), agent_version = COALESCE(NULLIF(?, ''), agent_version), last_seen = ? WHERE id = ?").run(
+      t.hostname, t.user, t.agentVersion, now, c.deviceId,
+    );
+    if ((before?.last_user ?? '') !== (t.user || '')) syncDevice(c.deviceId);
+    return;
+  }
   db.prepare(
     `UPDATE devices SET hostname=?, ip=?, mac=COALESCE(NULLIF(?, ''), mac), last_user=NULLIF(?, ''), os=?, cpu_model=?, cpu_load=?,
        ram_total_mb=?, ram_free_mb=?, disk_total_gb=?, disk_free_gb=?, uptime_sec=?, agent_version=COALESCE(NULLIF(?, ''), agent_version), last_seen=?
@@ -119,15 +153,12 @@ const ACK_COLUMN = { seen: 'seen_at', read: 'read_at', acked: 'acked_at', dismis
 
 function onAck(c: Conn, id: string, action: keyof typeof ACK_COLUMN, answer?: string) {
   const d = getDevice(c.deviceId);
-  if (!d) return;
-  const exists = db.prepare('SELECT 1 FROM announcements WHERE id = ?').get(id);
-  if (!exists) return;
+  if (!d || d.status !== 'approved' || !wasSentTo(id, d.id)) return;
   const col = ACK_COLUMN[action];
   const now = nowIso();
-  db.prepare('INSERT OR IGNORE INTO deliveries(announcement_id, device_id, user_login, sent_at) VALUES(?,?,?,?)').run(id, d.id, d.last_user, now);
   db.prepare(
     `UPDATE deliveries SET ${col} = COALESCE(${col}, @now)${col === 'seen_at' ? '' : ', seen_at = COALESCE(seen_at, @now)'},
-       user_login = COALESCE(@user, user_login)${action === 'answered' ? ', answer = @answer' : ''}
+       user_login = COALESCE(@user, user_login)${action === 'answered' ? ', answer = COALESCE(answer, @answer)' : ''}
      WHERE announcement_id = @id AND device_id = @device`,
   ).run({ now, user: d.last_user, id, device: d.id, ...(action === 'answered' ? { answer: String(answer ?? '').slice(0, 200) } : {}) });
 }
@@ -137,7 +168,9 @@ function onSafety(c: Conn, emergencyId: string, status: 'safe' | 'help', note?: 
   const e = db.prepare('SELECT id, announcement_id, ended_at FROM emergencies WHERE id = ?').get(emergencyId) as
     | { id: string; announcement_id: string; ended_at: string | null }
     | undefined;
-  if (!d || !e || e.ended_at) return;
+  if (!d || d.status !== 'approved' || !e || e.ended_at) return;
+  // yalnızca bu acil durumun gönderildiği cihaz yanıt verebilir
+  if (!e.announcement_id || !wasSentTo(e.announcement_id, d.id)) return;
   db.prepare(
     `INSERT INTO roll_calls(emergency_id, device_id, user_login, status, note, responded_at) VALUES(?,?,?,?,?,?)
      ON CONFLICT(emergency_id, device_id) DO UPDATE SET status = excluded.status, note = excluded.note, responded_at = excluded.responded_at,
@@ -148,7 +181,13 @@ function onSafety(c: Conn, emergencyId: string, status: 'safe' | 'help', note?: 
 
 function onReport(c: Conn, kind: 'it_help' | 'near_miss', text: string, anonymous: boolean) {
   const d = getDevice(c.deviceId) as (DeviceRow & Record<string, unknown>) | undefined;
-  if (!d || !text.trim()) return;
+  if (!d || d.status !== 'approved' || !text.trim()) return;
+  if (!hasModule(REPORT_MODULE[kind])) return; // modül lisanslı değil
+  const hourAgo = Date.now() - 3600_000;
+  const times = (reportTimes.get(d.id) ?? []).filter((t) => t > hourAgo);
+  if (times.length >= REPORTS_PER_HOUR) return;
+  times.push(Date.now());
+  reportTimes.set(d.id, times);
   // Anonim ramak kala: kişi ve cihaz saklanmaz, sadece lokasyon (İSG analizi için) kalır.
   const anon = kind === 'near_miss' && anonymous;
   const summary = anon
@@ -195,12 +234,16 @@ export async function agentRoutes(app: FastifyInstance) {
         // GPO (ErtePano.admx) ile OU başına verilebilen öneri; kayıt anahtarının varsayılanı varsa o kazanır
         location: z.string().trim().max(80).optional(),
         department: z.string().trim().max(80).optional(),
+        /** Yeniden kayıtta eski cihaz sırrı: doğruysa onay durumu korunur */
+        deviceSecret: z.string().max(128).optional(),
       })
       .parse(req.body);
+    if (enrollLimiter.blocked(req.ip)) return reply.code(429).send({ error: 'Çok fazla kayıt denemesi' });
     const key = db.prepare('SELECT * FROM enroll_keys WHERE key = ? AND revoked = 0').get(body.enrollKey.trim().toUpperCase()) as
       | { id: string; auto_approve: number; default_location: string | null; default_department: string | null }
       | undefined;
     if (!key) {
+      enrollLimiter.hit(req.ip);
       audit(null, 'enroll_rejected', 'device', null, { hostname: body.hostname }, req.ip);
       return reply.code(403).send({ error: 'Geçersiz kayıt anahtarı' });
     }
@@ -208,23 +251,30 @@ export async function agentRoutes(app: FastifyInstance) {
     const department = key.default_department || body.department || null;
     const secret = randomToken();
     const now = nowIso();
-    const existing = db.prepare('SELECT id, status FROM devices WHERE hostname = ? AND mac = ?').get(body.hostname, body.mac) as
-      | { id: string; status: string }
+    const existing = db.prepare('SELECT id, status, secret_hash FROM devices WHERE hostname = ? AND mac = ?').get(body.hostname, body.mac) as
+      | { id: string; status: string; secret_hash: string }
       | undefined;
     let deviceId: string;
     let status: string;
     if (existing) {
       if (existing.status === 'blocked') return reply.code(403).send({ error: 'Bu cihaz engellenmiş' });
       deviceId = existing.id;
-      status = existing.status;
-      db.prepare('UPDATE devices SET secret_hash = ?, os = ?, agent_version = ?, last_user = ?, ip = ?, last_seen = ? WHERE id = ?').run(
-        sha256(secret), body.os, body.agentVersion, body.user || null, req.ip, now, deviceId,
+      // Hostname + MAC istemcinin beyanıdır: eski sırrı kanıtlayamayan yeniden kayıt IT onayına düşer.
+      // Böylece kayıt anahtarını bilen biri onaylı bir cihazın kimliğine bürünemez.
+      const proven = !!body.deviceSecret && /^[0-9a-f]+$/.test(body.deviceSecret) && safeEqualHex(existing.secret_hash, sha256(body.deviceSecret));
+      status = proven || existing.status === 'pending' ? existing.status : key.auto_approve && existing.status !== 'approved' ? 'approved' : 'pending';
+      if (!proven && existing.status === 'approved') {
+        disconnectDevice(deviceId);
+        audit(null, 'device_reenrolled_pending', 'device', deviceId, { hostname: body.hostname, reason: 'eski cihaz sırrı kanıtlanmadı' }, req.ip);
+      }
+      db.prepare('UPDATE devices SET secret_hash = ?, status = ?, os = ?, agent_version = ?, last_user = ?, ip = ?, last_seen = ? WHERE id = ?').run(
+        sha256(secret), status, body.os, body.agentVersion, body.user || null, req.ip, now, deviceId,
       );
       // IT'nin panelde verdiği etiketi ezme; yalnızca boşsa doldur
       db.prepare('UPDATE devices SET location = COALESCE(location, ?), department = COALESCE(department, ?) WHERE id = ?').run(location, department, deviceId);
     } else {
       deviceId = uuid();
-      status = key.auto_approve ? 'approved' : 'pending';
+      status = key.auto_approve && !deviceLimitReached() ? 'approved' : 'pending';
       db.prepare(
         `INSERT INTO devices(id, secret_hash, hostname, mac, ip, os, agent_version, last_user, location, department, status, first_seen, last_seen)
          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
@@ -271,7 +321,7 @@ export async function agentRoutes(app: FastifyInstance) {
         }
         clearTimeout(helloTimer);
         conns.get(d.id)?.socket.close(4000, 'replaced');
-        conn = { socket, deviceId: d.id, base, alive: true };
+        conn = { socket, deviceId: d.id, base, alive: true, tokens: BUCKET_MAX, refillAt: Date.now(), dropped: 0 };
         conns.set(d.id, conn);
         db.prepare('UPDATE devices SET last_seen = ?, agent_version = COALESCE(?, agent_version), last_user = COALESCE(?, last_user), ip = ? WHERE id = ?').run(
           nowIso(), msg.agentVersion ?? null, msg.user || null, req.ip, d.id,
@@ -281,6 +331,11 @@ export async function agentRoutes(app: FastifyInstance) {
         return;
       }
       conn.alive = true;
+      if (msg.t !== 'pong' && !takeToken(conn)) {
+        // sürekli taşan bağlantı kapatılır
+        if (++conn.dropped > 200) socket.close(4008, 'rate');
+        return;
+      }
       switch (msg.t) {
         case 'telemetry':
           onTelemetry(conn, msg.data);

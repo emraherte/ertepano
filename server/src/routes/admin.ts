@@ -4,20 +4,35 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { z } from 'zod';
-import { requireRole } from '../auth.js';
+import { requireRole, revokeSessions } from '../auth.js';
 import { config } from '../config.js';
-import { audit, db, getSetting, nowIso, setSetting } from '../db.js';
+import { audit, db, getSetting, nowIso, setSetting, verifyAuditChain } from '../db.js';
 import { annDto, type AnnRow, approvedDevices, parseTargets, placementColumns, placementSchema } from '../announcements.js';
 import { endAnnouncement } from '../lifecycle.js';
-import { onlineCount } from '../hub.js';
+import { onlineCount, syncAll } from '../hub.js';
 import { hashPassword, newPassword, randomToken, uuid, verifyPassword } from '../security.js';
 import { localToday, runDailyAutomation } from '../scheduler.js';
 import { ldapTest } from '../ldap.js';
+import { hasModule, invalidateLicense, licenseInfo, parseLicense, publishCategories, REPORT_MODULE, requireModule, serverId } from '../license.js';
+import type { ReportKind } from '@ertepano/shared';
 import { deviceAlerts } from './devices.js';
 
 const mediaDir = path.join(config.dataDir, 'media');
 fs.mkdirSync(mediaDir, { recursive: true });
 const IMAGE_TYPES: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' };
+
+/** Dosyanın sihirli baytlarından görsel türü (uzantı) — tarayıcının bildirdiği MIME türüne güvenilmez. */
+function sniffImage(file: string): string | null {
+  const fd = fs.openSync(file, 'r');
+  const b = Buffer.alloc(12);
+  fs.readSync(fd, b, 0, 12, 0);
+  fs.closeSync(fd);
+  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return '.png';
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return '.jpg';
+  if (b.subarray(0, 6).toString('latin1') === 'GIF87a' || b.subarray(0, 6).toString('latin1') === 'GIF89a') return '.gif';
+  if (b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP') return '.webp';
+  return null;
+}
 
 /** "15.07", "15.07.1990", "1990-07-15", "07-15" → "07-15" */
 function toMonthDay(s: string | undefined): string | null {
@@ -50,7 +65,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const active = db.prepare("SELECT * FROM announcements WHERE status = 'active' AND kind != 'fullscreen' ORDER BY created_at DESC").all() as AnnRow[];
     const recent = db.prepare("SELECT * FROM announcements WHERE status IN ('active','ended') AND kind != 'fullscreen' AND auto_key IS NULL ORDER BY starts_at DESC LIMIT 6").all() as AnnRow[];
     const stat = db.prepare('SELECT COUNT(sent_at) sent, COUNT(seen_at) seen, COUNT(acked_at) acked, COUNT(answered_at) answered FROM deliveries WHERE announcement_id = ?');
-    const reportKinds = role === 'admin' ? ['it_help', 'near_miss'] : role === 'it' ? ['it_help'] : role === 'isg' ? ['near_miss'] : [];
+    const reportKinds = (role === 'admin' ? ['it_help', 'near_miss'] : role === 'it' ? ['it_help'] : role === 'isg' ? ['near_miss'] : []).filter((k) => hasModule(REPORT_MODULE[k as ReportKind]));
     const openReports = reportKinds.length
       ? (db.prepare(`SELECT kind, COUNT(*) c FROM reports WHERE status != 'closed' AND kind IN (${reportKinds.map(() => '?').join(',')}) GROUP BY kind`).all(...reportKinds) as { kind: string; c: number }[])
       : [];
@@ -78,7 +93,7 @@ export async function adminRoutes(app: FastifyInstance) {
       emergency: emergency ? { ...emergency, drill: !!emergency.drill } : null,
       celebrations,
       pendingAcks,
-      canPublish: ROLE_CATEGORIES[role],
+      canPublish: publishCategories(role),
     };
   });
 
@@ -117,14 +132,20 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/api/media', { preHandler: requireRole('ik', 'isg', 'it') }, async (req, reply) => {
     const file = await req.file();
     if (!file) return reply.code(400).send({ error: 'Dosya yok' });
-    const ext = IMAGE_TYPES[file.mimetype];
-    if (!ext) return reply.code(400).send({ error: 'Sadece PNG, JPG, GIF veya WEBP yüklenebilir' });
-    const name = `${uuid()}${ext}`;
-    await pipeline(file.file, fs.createWriteStream(path.join(mediaDir, name)));
+    if (!IMAGE_TYPES[file.mimetype]) return reply.code(400).send({ error: 'Sadece PNG, JPG, GIF veya WEBP yüklenebilir' });
+    const tmp = path.join(mediaDir, `.yukleniyor-${uuid()}`);
+    await pipeline(file.file, fs.createWriteStream(tmp));
     if (file.file.truncated) {
-      fs.rmSync(path.join(mediaDir, name), { force: true });
+      fs.rmSync(tmp, { force: true });
       return reply.code(413).send({ error: 'Görsel en fazla 5 MB olabilir' });
     }
+    const ext = sniffImage(tmp);
+    if (!ext) {
+      fs.rmSync(tmp, { force: true });
+      return reply.code(400).send({ error: 'Dosya içeriği geçerli bir PNG, JPG, GIF veya WEBP değil' });
+    }
+    const name = `${uuid()}${ext}`;
+    fs.renameSync(tmp, path.join(mediaDir, name));
     audit(req.user!.username, 'media_uploaded', 'media', name, { original: file.filename }, req.ip);
     return { url: `/media/${name}` };
   });
@@ -135,7 +156,7 @@ export async function adminRoutes(app: FastifyInstance) {
     monthDay: z.string().regex(/^\d{2}-\d{2}$/).nullable().optional(),
     date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
     emoji: z.string().max(16).nullable().optional(),
-    imageUrl: z.string().max(500).nullable().optional(),
+    imageUrl: z.string().regex(/^\/media\/[0-9a-f-]{36}\.(png|jpg|gif|webp)$/, 'Görsel yalnızca panelden yüklenebilir').nullable().optional(),
     message: z.string().max(500).nullable().optional(),
     kind: z.enum(['badge', 'toast', 'banner']).default('badge'),
     enabled: z.boolean().default(true),
@@ -210,7 +231,7 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   // ---- Çalışanlar (kutlama otomasyonu) ----
-  app.get('/api/employees', { preHandler: requireRole('ik') }, async () => ({
+  app.get('/api/employees', { preHandler: [requireRole('ik'), requireModule('ik')] }, async () => ({
     items: db
       .prepare('SELECT username, full_name fullName, birth_md birthMd, start_date startDate, department, location, celebrate FROM employees ORDER BY full_name')
       .all()
@@ -218,7 +239,7 @@ export async function adminRoutes(app: FastifyInstance) {
   }));
 
   /** CSV: kullanıcı adı; ad soyad; doğum günü (GG.AA); işe giriş (GG.AA.YYYY); departman; lokasyon */
-  app.post('/api/employees/import', { preHandler: requireRole('ik') }, async (req) => {
+  app.post('/api/employees/import', { preHandler: [requireRole('ik'), requireModule('ik')] }, async (req) => {
     const b = z.object({ csv: z.string().max(2_000_000), replace: z.boolean().default(false) }).parse(req.body);
     const lines = b.csv.replace(/^﻿/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
     const sep = [';', '\t', ','].find((s) => lines[0]?.includes(s)) ?? ';';
@@ -248,7 +269,7 @@ export async function adminRoutes(app: FastifyInstance) {
     return { imported, errors: errors.slice(0, 20) };
   });
 
-  app.patch('/api/employees/:username', { preHandler: requireRole('ik') }, async (req) => {
+  app.patch('/api/employees/:username', { preHandler: [requireRole('ik'), requireModule('ik')] }, async (req) => {
     const { username } = req.params as { username: string };
     const b = z.object({ celebrate: z.boolean() }).parse(req.body);
     db.prepare('UPDATE employees SET celebrate = ? WHERE username = ?').run(b.celebrate ? 1 : 0, username);
@@ -256,7 +277,7 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  app.delete('/api/employees/:username', { preHandler: requireRole('ik') }, async (req) => {
+  app.delete('/api/employees/:username', { preHandler: [requireRole('ik'), requireModule('ik')] }, async (req) => {
     const { username } = req.params as { username: string };
     db.prepare('DELETE FROM employees WHERE username = ?').run(username);
     audit(req.user!.username, 'employee_deleted', 'employee', username, undefined, req.ip);
@@ -266,9 +287,9 @@ export async function adminRoutes(app: FastifyInstance) {
   // ---- Panel kullanıcıları ----
   app.get('/api/users', { preHandler: requireRole('admin') }, async () => ({
     items: db
-      .prepare('SELECT id, username, full_name fullName, role, is_active isActive, auth_source authSource, email, created_at createdAt, last_login_at lastLoginAt FROM users ORDER BY username')
+      .prepare('SELECT id, username, full_name fullName, role, is_active isActive, auth_source authSource, email, mfa_enabled mfaEnabled, mfa_enrolled_at mfaEnrolledAt, created_at createdAt, last_login_at lastLoginAt FROM users ORDER BY username')
       .all()
-      .map((u) => ({ ...(u as object), isActive: !!(u as { isActive: number }).isActive })),
+      .map((u) => ({ ...(u as object), isActive: !!(u as { isActive: number }).isActive, mfaEnabled: !!(u as { mfaEnabled: number }).mfaEnabled })),
   }));
 
   app.post('/api/users', { preHandler: requireRole('admin') }, async (req, reply) => {
@@ -316,7 +337,12 @@ export async function adminRoutes(app: FastifyInstance) {
     if (req.user!.authSource === 'ldap') return reply.code(400).send({ error: "Parolanız Active Directory'de yönetilir" });
     const u = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user!.id) as { password_hash: string };
     if (!verifyPassword(b.current, u.password_hash)) return reply.code(400).send({ error: 'Mevcut parola hatalı' });
-    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(b.next), req.user!.id);
+    if (b.next === b.current) return reply.code(400).send({ error: 'Yeni parola eskisiyle aynı olamaz' });
+    if (b.next.toLowerCase().includes(req.user!.username.toLowerCase())) return reply.code(400).send({ error: 'Parola kullanıcı adınızı içeremez' });
+    db.prepare('UPDATE users SET password_hash = ?, password_changed_at = ? WHERE id = ?').run(hashPassword(b.next), nowIso(), req.user!.id);
+    // diğer cihazlardaki oturumlar kapanır; ilk kurulum parolası dosyası artık geçersiz → silinir
+    revokeSessions(req.user!.id, req.sessionHash);
+    if (req.user!.username === 'admin') fs.rmSync(path.join(config.dataDir, 'ILK-YONETICI-PAROLASI.txt'), { force: true });
     audit(req.user!.username, 'password_changed', 'user', req.user!.id, undefined, req.ip);
     return { ok: true };
   });
@@ -349,7 +375,35 @@ export async function adminRoutes(app: FastifyInstance) {
     return result;
   });
 
+  // ---- Lisans ----
+  app.get('/api/license', { preHandler: requireRole() }, async (req) => ({
+    ...licenseInfo(),
+    ...(req.user!.role === 'admin' ? { serverId: serverId() } : {}),
+  }));
+
+  app.post('/api/license', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const { license } = z.object({ license: z.string().min(20).max(10_000) }).parse(req.body);
+    let lic;
+    try {
+      lic = parseLicense(license);
+    } catch (e) {
+      audit(req.user!.username, 'license_rejected', 'license', null, { reason: (e as Error).message }, req.ip);
+      return reply.code(400).send({ error: (e as Error).message });
+    }
+    setSetting('license', license.trim());
+    invalidateLicense();
+    audit(req.user!.username, 'license_installed', 'license', lic.id, { customer: lic.customer, modules: lic.modules, maxDevices: lic.maxDevices, validUntil: lic.validUntil }, req.ip);
+    syncAll();
+    return licenseInfo();
+  });
+
   // ---- Denetim kaydı ----
+  app.get('/api/audit/verify', { preHandler: requireRole('admin') }, async (req) => {
+    const r = verifyAuditChain();
+    audit(req.user!.username, 'audit_verified', 'audit', null, r, req.ip);
+    return r;
+  });
+
   app.get('/api/audit', { preHandler: requireRole('admin') }, async (req) => {
     const q = z.object({ q: z.string().optional(), limit: z.coerce.number().min(1).max(1000).default(300) }).parse(req.query);
     const like = q.q ? `%${q.q}%` : null;

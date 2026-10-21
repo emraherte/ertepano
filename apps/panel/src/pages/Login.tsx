@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowRight, Building2, HardHat, KeyRound, Lock, Moon, RadioTower, ShieldCheck, Sun, User as UserIcon, Users } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Building2, LifeBuoy, ShieldEllipsis, HardHat, KeyRound, Lock, Moon, RadioTower, ShieldCheck, Sun, User as UserIcon, Users } from 'lucide-react';
 import { api } from '../api';
 import type { User } from '../types';
 import { Button, Callout, cn, Field, IconButton, Input, useTheme } from '../ui';
+import { CodeInput } from '../ui/code-input';
 
 const PILLARS = [
   { icon: Users, label: 'İnsan Kaynakları', text: 'Duyuru, anket, kutlama', grad: 'from-violet-500 to-fuchsia-500' },
@@ -71,6 +72,10 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [ldap, setLdap] = useState<{ enabled: boolean; domain: string | null } | null>(null);
+  // 2. adım: parola doğru, Authenticator kodu bekleniyor
+  const [challenge, setChallenge] = useState<string | null>(null);
+  const [code, setCode] = useState('');
+  const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
     api<{ ldap: boolean; domain: string | null }>('/api/auth/config').then((r) => setLdap({ enabled: r.ldap, domain: r.domain }), () => setLdap(null));
@@ -81,13 +86,43 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ user: User }>('/api/auth/login', { body: { username, password } });
-      onLogin(r.user);
+      const r = await api<{ user?: User; mfa?: 'required'; challenge?: string }>('/api/auth/login', { body: { username, password } });
+      if (r.mfa === 'required' && r.challenge) {
+        setChallenge(r.challenge);
+        setPassword('');
+        setCode('');
+      } else if (r.user) onLogin(r.user);
     } catch (err) {
       setError((err as Error).message);
     } finally {
       setBusy(false);
     }
+  };
+
+  const verify = async (c = code) => {
+    if (!challenge || busy) return;
+    if (!recovery && c.length !== 6) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const r = await api<{ user: User; recoveryUsed?: boolean; recoveryLeft?: number }>('/api/auth/login/mfa', { body: { challenge, code: c } });
+      if (r.recoveryUsed) sessionStorage.setItem('ertepano.recoveryLeft', String(r.recoveryLeft ?? 0));
+      onLogin(r.user);
+    } catch (err) {
+      const e = err as Error & { status?: number };
+      setError(e.message);
+      setCode('');
+      if (/süresi doldu|yeniden giriş/i.test(e.message)) setChallenge(null);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const back = () => {
+    setChallenge(null);
+    setError(null);
+    setCode('');
+    setRecovery(false);
   };
 
   return (
@@ -145,7 +180,12 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
         <div className="app-backdrop" />
         <IconButton icon={dark ? Sun : Moon} label="Tema" onClick={toggle} className="absolute top-6 right-6" />
         <motion.form
-          onSubmit={submit}
+          onSubmit={(e) => {
+            if (challenge) {
+              e.preventDefault();
+              verify();
+            } else submit(e);
+          }}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
@@ -157,6 +197,43 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
             </div>
             <span className="text-lg font-bold tracking-tight">ErtePano</span>
           </div>
+          {challenge ? (
+            <>
+          <button type="button" onClick={back} className="mb-6 flex items-center gap-1.5 text-[13px] font-medium text-slate-500 transition hover:text-slate-900 dark:hover:text-white">
+            <ArrowLeft size={15} /> Geri
+          </button>
+          <div className="mb-5 flex h-12 w-12 items-center justify-center rounded-2xl bg-linear-to-br from-emerald-500/15 to-teal-500/10 text-emerald-600 ring-1 ring-emerald-500/20 dark:text-emerald-300">
+            {recovery ? <LifeBuoy size={22} /> : <ShieldEllipsis size={22} />}
+          </div>
+          <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">{recovery ? 'Kurtarma kodu' : 'Doğrulama kodu'}</h2>
+          <p className="mt-1.5 text-[14px] text-slate-500 dark:text-slate-400">
+            {recovery ? 'Kaydettiğiniz kurtarma kodlarından birini girin (ör. ABCD-EFGH). Her kod bir kez kullanılır.' : 'Authenticator uygulamanızdaki 6 haneli kodu girin.'}
+          </p>
+          <div className="mt-8 space-y-5">
+            {recovery ? (
+              <Input icon={LifeBuoy} autoFocus value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="XXXX-XXXX" maxLength={12} className="font-mono tracking-widest" autoComplete="off" />
+            ) : (
+              <CodeInput value={code} onChange={setCode} onComplete={verify} disabled={busy} autoFocus error={!!error} />
+            )}
+            {error && <Callout tone="danger">{error}</Callout>}
+            <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={recovery ? code.replace(/[^A-Z0-9]/g, '').length < 8 : code.length !== 6} iconRight={busy ? undefined : ArrowRight}>
+              Doğrula
+            </Button>
+            <button
+              type="button"
+              onClick={() => {
+                setRecovery(!recovery);
+                setCode('');
+                setError(null);
+              }}
+              className="w-full text-center text-[13px] font-medium text-emerald-700 transition hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300"
+            >
+              {recovery ? 'Authenticator kodu kullan' : 'Telefonuma erişemiyorum — kurtarma kodu kullan'}
+            </button>
+          </div>
+            </>
+          ) : (
+            <>
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Tekrar hoş geldiniz</h2>
           <p className="mt-1.5 text-[14px] text-slate-500 dark:text-slate-400">
             {ldap?.enabled ? 'Kurumsal (Windows) hesabınızla giriş yapın.' : 'Panel hesabınızla giriş yapın.'}
@@ -183,6 +260,8 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
               {busy ? 'Giriş yapılıyor' : 'Giriş yap'}
             </Button>
           </div>
+            </>
+          )}
           <div className="mt-8 flex items-center gap-2 border-t border-slate-200/60 pt-6 text-[12px] text-slate-400 dark:border-white/10">
             <KeyRound size={13} /> Oturumlar şifreli çerezle korunur; her işlem denetim kaydına yazılır.
           </div>

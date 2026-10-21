@@ -17,10 +17,12 @@ import { deviceRoutes } from './routes/devices.js';
 import { emergencyRoutes } from './routes/emergencies.js';
 import { startScheduler } from './scheduler.js';
 import { publicKeyBase64 } from './security.js';
+import { lockDataDir, registerHardening } from './hardening.js';
 
 bootstrap();
+lockDataDir();
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'warn' }, trustProxy: true, bodyLimit: 3 * 1024 * 1024 });
+const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'warn' }, trustProxy: config.trustProxy.length ? config.trustProxy : false, bodyLimit: 3 * 1024 * 1024 });
 
 app.setErrorHandler((err: Error, req, reply) => {
   if (err instanceof ZodError) {
@@ -32,11 +34,7 @@ app.setErrorHandler((err: Error, req, reply) => {
   return reply.code(status).send({ error: status >= 500 ? 'Sunucu hatası' : err.message });
 });
 
-app.addHook('onSend', async (_req, reply) => {
-  reply.header('x-content-type-options', 'nosniff');
-  reply.header('x-frame-options', 'DENY');
-  reply.header('referrer-policy', 'same-origin');
-});
+registerHardening(app);
 
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });

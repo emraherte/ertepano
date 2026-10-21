@@ -17,7 +17,9 @@
     "start": "npm run start -w @ertepano/server",
     "seed:demo": "npm run seed -w @ertepano/server -- --demo",
     "sim": "npm run start -w @ertepano/sim --",
-    "typecheck": "npm run typecheck --workspaces --if-present"
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "license": "npm run start -w @ertepano/license-tool --",
+    "test": "npm test -w @ertepano/server"
   },
   "devDependencies": {
     "@types/node": "^20.16.0",

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { Building2, KeyRound, Plus, Power, ShieldCheck, UserCheck, Users as UsersIcon } from 'lucide-react';
+import { Building2, KeyRound, Plus, Power, ShieldCheck, ShieldOff, UserCheck, Users as UsersIcon } from 'lucide-react';
 import { ROLE_LABELS, ROLES, type Role } from '@ertepano/shared';
 import { api, fmtAgo, useApi } from '../api';
 import { Avatar, Badge, Button, Callout, Card, cn, Copy, EmptyState, Field, Input, listItem, Modal, PageHeader, Select, SkeletonCard, td, th, trCls, useAuth, useConfirm, useToast } from '../ui';
@@ -13,6 +13,7 @@ interface PanelUser {
   isActive: boolean;
   lastLoginAt: string | null;
   authSource?: 'local' | 'ldap';
+  mfaEnabled?: boolean;
 }
 
 const ROLE_HELP: Record<Role, string> = {
@@ -27,6 +28,15 @@ export function Users() {
   const { user: me } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
+  const resetMfa = async (u: PanelUser) => {
+    try {
+      await api(`/api/users/${u.id}/mfa/reset`, { method: 'POST' });
+      toast(`${u.fullName} için 2FA sıfırlandı`);
+      reload();
+    } catch (e) {
+      toast((e as Error).message, true);
+    }
+  };
   const { data, reload } = useApi<{ items: PanelUser[] }>('/api/users');
   const [form, setForm] = useState<{ username: string; fullName: string; role: Role } | null>(null);
   const [secret, setSecret] = useState<{ username: string; password: string } | null>(null);
@@ -117,6 +127,13 @@ export function Users() {
                           ) : (
                             <Badge icon={KeyRound}>Yerel</Badge>
                           )}
+                          <div className="mt-1.5">
+                            {u.mfaEnabled ? (
+                              <Badge tone="success" icon={ShieldCheck}>2FA açık</Badge>
+                            ) : (
+                              <Badge tone="warning" icon={ShieldOff}>2FA yok</Badge>
+                            )}
+                          </div>
                         </td>
                         <td className={td}>
                           <Select value={u.role} disabled={self || ldap} onChange={(e) => patch(u, { role: e.target.value })} className="w-44">
@@ -134,6 +151,23 @@ export function Users() {
                             {!ldap && (
                               <Button size="sm" variant="ghost" icon={KeyRound} onClick={async () => (await confirm({ title: 'Parola sıfırlansın mı?', description: `${u.fullName} için yeni geçici parola üretilir; açık oturumları kapanır.`, confirmLabel: 'Sıfırla' })) && patch(u, { resetPassword: true })}>
                                 Parola sıfırla
+                              </Button>
+                            )}
+                            {!self && u.mfaEnabled && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                icon={ShieldOff}
+                                onClick={async () =>
+                                  (await confirm({
+                                    title: '2FA sıfırlansın mı?',
+                                    description: `${u.fullName} telefonunu kaybettiyse kullanın. Bir sonraki girişte 2FA'yı yeniden kurması gerekir; açık oturumları kapanır.`,
+                                    confirmLabel: 'Sıfırla',
+                                    tone: 'danger',
+                                  })) && resetMfa(u)
+                                }
+                              >
+                                2FA sıfırla
                               </Button>
                             )}
                             {!self && (

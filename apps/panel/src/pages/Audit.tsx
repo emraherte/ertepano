@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ScrollText, Search } from 'lucide-react';
-import { fmtDateTime, useApi } from '../api';
-import { Avatar, Card, cn, EmptyState, Input, listItem, PageHeader, SkeletonCard, td, th, trCls } from '../ui';
+import { Link2, ScrollText, Search } from 'lucide-react';
+import { api, fmtDateTime, useApi } from '../api';
+import { Avatar, Button, Card, cn, useToast, EmptyState, Input, listItem, PageHeader, SkeletonCard, td, th, trCls } from '../ui';
 
 interface Row {
   id: number;
@@ -47,6 +47,14 @@ const ACTIONS: Record<string, string> = {
   special_day_created: 'Özel gün ekledi',
   media_uploaded: 'Görsel yükledi',
   kiosk_key_rotated: 'Kiosk anahtarını yeniledi',
+  mfa_enabled: '2FA açtı',
+  mfa_disabled: '2FA kapattı',
+  mfa_failed: 'Hatalı 2FA kodu',
+  mfa_reset: '2FA sıfırladı',
+  mfa_recovery_regenerated: 'Kurtarma kodlarını yeniledi',
+  security_settings_updated: 'Güvenlik politikasını değiştirdi',
+  device_reenrolled_pending: 'Cihaz kimliği kanıtlanamadı — onaya düştü',
+  audit_verified: 'Denetim kaydını doğruladı',
 };
 
 const tone = (a: string) =>
@@ -63,14 +71,30 @@ export function Audit() {
   const [applied, setApplied] = useState('');
   const { data } = useApi<{ items: Row[] }>(`/api/audit${applied ? `?q=${encodeURIComponent(applied)}` : ''}`);
   const items = data?.items ?? [];
+  const toast = useToast();
+  const [verifying, setVerifying] = useState(false);
+  const verify = async () => {
+    setVerifying(true);
+    try {
+      const r = await api<{ ok: boolean; checked: number; brokenAt: number | null }>('/api/audit/verify');
+      if (r.ok) toast(`Zincir sağlam — ${r.checked} kayıt doğrulandı`);
+      else toast(`UYARI: kayıt #${r.brokenAt} değiştirilmiş ya da silinmiş`, true);
+    } catch (e) {
+      toast((e as Error).message, true);
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   return (
     <>
       <PageHeader
         eyebrow={<><ScrollText size={14} /> Uyum</>}
         title="Denetim kaydı"
-        description="Panelde yapılan her işlem silinemez şekilde kaydedilir (saklama: 2 yıl)."
+        description="Panelde yapılan her işlem silinemez şekilde kaydedilir; her kayıt bir öncekinin özetini taşır (saklama: 2 yıl)."
         actions={
+          <>
+          <Button icon={Link2} loading={verifying} onClick={verify}>Bütünlüğü doğrula</Button>
           <Input
             icon={Search}
             placeholder="Kişi veya işlem ara… (Enter)"
@@ -80,6 +104,7 @@ export function Audit() {
             onBlur={() => setApplied(q)}
             className="w-full sm:w-80"
           />
+          </>
         }
       />
       {!data ? (

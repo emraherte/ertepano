@@ -7,6 +7,9 @@ export interface User {
   role: Role;
   /** 'ldap' = Active Directory hesabı (parola AD'de yönetilir) */
   authSource?: 'local' | 'ldap';
+  mfaEnabled?: boolean;
+  /** Rolü 2FA gerektiriyor, henüz kurulmadı → panel yerine kurulum ekranı */
+  mfaSetupRequired?: boolean;
 }
 
 export interface Stats {
@@ -90,6 +93,8 @@ export interface Device {
 }
 
 export interface EmergencyDetail {
+  /** false: kişi adları/notlar bu rol için gizli (yalnızca sayılar) */
+  personal?: boolean;
   id: string;
   type: string;
   title: string;

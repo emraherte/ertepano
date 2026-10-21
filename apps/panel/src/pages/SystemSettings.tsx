@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Building2, CheckCircle2, CircleSlash, KeyRound, Network, PlugZap, Search, Settings2, ShieldCheck, Users, XCircle } from 'lucide-react';
 import { ROLE_LABELS, type Role } from '@ertepano/shared';
 import { api, useApi } from '../api';
+import { SecurityPolicyCard } from '../components/SecurityPolicyCard';
 import { Badge, Button, Callout, Card, CardHeader, cn, Field, IconTile, Input, KeyValue, PageHeader, PageSkeleton, StatCard, useToast } from '../ui';
 
 interface LdapSettings {
@@ -68,9 +69,13 @@ export function SystemSettings() {
     <>
       <PageHeader
         eyebrow={<><Settings2 size={14} /> Yönetim</>}
-        title="Sistem & LDAP"
+        title="Sistem & güvenlik"
         description="Active Directory ile tek oturum: çalışanlar Windows hesaplarıyla girer, rolleri AD gruplarından gelir."
       />
+
+      <div className="mb-6">
+        <SecurityPolicyCard />
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-12 [&>*]:min-w-0">
         <Card className="relative overflow-hidden p-8 xl:col-span-8">

@@ -357,7 +357,9 @@ export function Emergency({ canAct, onChange }: { canAct: boolean; onChange: () 
 
           <Card delay={0.2}>
             <CardHeader icon={Clock} title="Yanıt vermeyenler" description="Toplanma alanı sorumlusuna iletin" action={<Badge tone="warning">{e.noResponse.length}</Badge>} />
-            {e.noResponse.length === 0 ? (
+            {e.personal === false ? (
+              <EmptyState icon={CheckCircle2} title="Kişi listesi gizli" description="KVKK gereği isimler ve yardım notları yalnızca olayı yöneten rollere (İSG, yönetici) gösterilir." />
+            ) : e.noResponse.length === 0 ? (
               <EmptyState icon={CheckCircle2} title="Herkes yanıt verdi" description="Hedefteki tüm ekranlardan yanıt alındı." />
             ) : (
               <div className="max-h-[420px] overflow-y-auto px-3 pb-3">
