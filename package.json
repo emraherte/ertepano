@@ -1,0 +1,31 @@
+{
+  "name": "ertepano",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ErtePano — İK, İSG ve IT için kurumsal ekran iletişim platformu (iç ağ).",
+  "workspaces": [
+    "packages/*",
+    "server",
+    "apps/panel",
+    "tools/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n sunucu,panel -c blue,magenta \"npm:dev:server\" \"npm:dev:panel\"",
+    "dev:server": "npm run dev -w @ertepano/server",
+    "dev:panel": "npm run dev -w @ertepano/panel",
+    "build": "npm run build -w @ertepano/panel",
+    "start": "npm run start -w @ertepano/server",
+    "seed:demo": "npm run seed -w @ertepano/server -- --demo",
+    "sim": "npm run start -w @ertepano/sim --",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@types/node": "^20.16.0",
+    "concurrently": "^9.0.1",
+    "tsx": "^4.19.1",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20.10"
+  }
+}

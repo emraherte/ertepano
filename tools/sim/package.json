@@ -1,0 +1,17 @@
+{
+  "name": "@ertepano/sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Sahte ajan simülatörü: Tauri ajanı derlemeden paneli ve protokolü denemek için.",
+  "scripts": {
+    "start": "tsx src/sim.ts"
+  },
+  "dependencies": {
+    "@ertepano/shared": "0.1.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.5.12"
+  }
+}

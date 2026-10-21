@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <title>Bu yazılım ne topluyor?</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body class="page">
+  <div class="page-wrap">
+    <h1>Bu yazılım ne topluyor?</h1>
+    <p class="muted" style="margin:0">ErtePano; kurum içi duyuruları (İK, İSG, IT) ekranınızda göstermek ve bilgisayar envanterini
+      güncel tutmak için çalışır. Veriler yalnızca şirketin kendi sunucusuna gider, kurum dışına çıkmaz.</p>
+
+    <div class="section">
+      <h2>✅ Toplanan bilgiler (IT envanteri)</h2>
+      <ul class="facts">
+        <li>Bilgisayar adı</li>
+        <li>IP adresi ve MAC adresi</li>
+        <li>Oturum açan kullanıcı adı</li>
+        <li>İşletim sistemi sürümü</li>
+        <li>İşlemci modeli ve anlık işlemci yükü</li>
+        <li>Toplam ve boş bellek (RAM)</li>
+        <li>Sistem diskinin toplam ve boş alanı</li>
+        <li>Bilgisayarın açık kalma süresi</li>
+        <li>Ajan sürümü</li>
+      </ul>
+      <p class="muted" style="margin:8px 0 0">Ayrıca: duyuruların ekranınızda gösterildiği / okunduğu / onaylandığı bilgisi,
+        anket yanıtlarınız, acil durum yoklama yanıtlarınız ve kendi gönderdiğiniz bildirimler.</p>
+    </div>
+
+    <div class="section">
+      <h2>⛔ Asla toplanmayanlar</h2>
+      <ul class="facts">
+        <li>Ekran görüntüsü</li>
+        <li>Açık pencere / uygulama başlıkları</li>
+        <li>Klavye ve fare hareketleri</li>
+        <li>Tarayıcı geçmişi, ziyaret edilen siteler</li>
+        <li>Dosyalarınız veya dosya listeleri</li>
+        <li>Kamera ve mikrofon</li>
+      </ul>
+      <p class="muted" style="margin:8px 0 0">Bu bilgiler performans takibi için kullanılmaz. Ayrıntılar için şirketinizin
+        "Bilgi Güvenliği ve Envanter Aydınlatma Metni"ne bakabilirsiniz.</p>
+    </div>
+
+    <div class="section">
+      <h2>Bu bilgisayar</h2>
+      <div id="me" class="muted">…</div>
+    </div>
+  </div>
+  <script src="app.js"></script>
+  <script src="about.js"></script>
+</body>
+</html>
