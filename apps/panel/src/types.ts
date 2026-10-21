@@ -31,6 +31,10 @@ export interface Announcement {
   options: string[] | null;
   countdownTo: string | null;
   position: string | null;
+  posX: number | null;
+  posY: number | null;
+  size: number | null;
+  opacity: number | null;
   sound: boolean;
   targets: string[];
   showOnKiosk: boolean;

@@ -7,7 +7,8 @@ import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { config } from '../config.js';
 import { audit, db, getSetting, nowIso, setSetting } from '../db.js';
-import { annDto, type AnnRow, approvedDevices, parseTargets } from '../announcements.js';
+import { annDto, type AnnRow, approvedDevices, parseTargets, placementColumns, placementSchema } from '../announcements.js';
+import { endAnnouncement } from '../lifecycle.js';
 import { onlineCount } from '../hub.js';
 import { hashPassword, newPassword, randomToken, uuid, verifyPassword } from '../security.js';
 import { localToday, runDailyAutomation } from '../scheduler.js';
@@ -138,11 +139,26 @@ export async function adminRoutes(app: FastifyInstance) {
     message: z.string().max(500).nullable().optional(),
     kind: z.enum(['badge', 'toast', 'banner']).default('badge'),
     enabled: z.boolean().default(true),
+    ...placementSchema,
   });
+
+  const DAY_COLS =
+    'id, name, month_day monthDay, date, emoji, image_url imageUrl, message, kind, enabled, position, pos_x posX, pos_y posY, size, opacity';
+
+  /** Bugün yayında olan otomatik duyuruyu kaldırıp yeniden üret (düzenleme anında ekranlara yansısın). */
+  function refreshToday(dayId: string) {
+    const key = `sd:${dayId}:${localToday()}`;
+    const row = db.prepare('SELECT id FROM announcements WHERE auto_key = ?').get(key) as { id: string } | undefined;
+    if (row) {
+      endAnnouncement(row.id);
+      db.prepare('DELETE FROM announcements WHERE id = ?').run(row.id);
+    }
+    runDailyAutomation();
+  }
 
   app.get('/api/special-days', { preHandler: requireRole() }, async () => ({
     items: db
-      .prepare('SELECT id, name, month_day monthDay, date, emoji, image_url imageUrl, message, kind, enabled FROM special_days ORDER BY COALESCE(substr(date, 6), month_day)')
+      .prepare(`SELECT ${DAY_COLS} FROM special_days ORDER BY COALESCE(substr(date, 6), month_day)`)
       .all()
       .map((r) => ({ ...(r as object), enabled: !!(r as { enabled: number }).enabled })),
     today: localToday(),
@@ -152,30 +168,43 @@ export async function adminRoutes(app: FastifyInstance) {
     const b = dayInput.parse(req.body);
     if (!b.monthDay && !b.date) return reply.code(400).send({ error: 'Her yıl tekrar eden gün (GG.AA) veya tek seferlik tarih gerekli' });
     const id = uuid();
-    db.prepare('INSERT INTO special_days(id, name, month_day, date, emoji, image_url, message, kind, enabled) VALUES(?,?,?,?,?,?,?,?,?)').run(
-      id, b.name, b.monthDay ?? null, b.date ?? null, b.emoji ?? null, b.imageUrl ?? null, b.message ?? null, b.kind, b.enabled ? 1 : 0,
-    );
+    const p = placementColumns(b);
+    db.prepare(
+      `INSERT INTO special_days(id, name, month_day, date, emoji, image_url, message, kind, enabled, position, pos_x, pos_y, size, opacity)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(id, b.name, b.monthDay ?? null, b.date ?? null, b.emoji ?? null, b.imageUrl ?? null, b.message ?? null, b.kind, b.enabled ? 1 : 0,
+      b.position ?? null, p.pos_x, p.pos_y, p.size, p.opacity);
     audit(req.user!.username, 'special_day_created', 'special_day', id, b, req.ip);
     runDailyAutomation();
     return { id };
   });
 
-  app.patch('/api/special-days/:id', { preHandler: requireRole('ik') }, async (req) => {
+  app.patch('/api/special-days/:id', { preHandler: requireRole('ik') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = dayInput.partial().parse(req.body);
+    const current = db.prepare('SELECT * FROM special_days WHERE id = ?').get(id) as { month_day: string | null; date: string | null } | undefined;
+    if (!current) return reply.code(404).send({ error: 'Özel gün bulunamadı' });
+    const hasPlacement = ['position', 'posX', 'posY', 'size', 'opacity'].some((k) => k in b);
+    const p = hasPlacement ? placementColumns(b) : null;
     const cols: Record<string, unknown> = {
       name: b.name, month_day: b.monthDay, date: b.date, emoji: b.emoji, image_url: b.imageUrl, message: b.message, kind: b.kind,
       enabled: b.enabled === undefined ? undefined : b.enabled ? 1 : 0,
+      ...(p ? { position: b.position ?? null, ...p } : {}),
     };
     const set = Object.entries(cols).filter(([, v]) => v !== undefined);
+    const nextMd = b.monthDay === undefined ? current.month_day : b.monthDay;
+    const nextDate = b.date === undefined ? current.date : b.date;
+    if (!nextMd && !nextDate) return reply.code(400).send({ error: 'Tarih gerekli' });
     if (set.length) db.prepare(`UPDATE special_days SET ${set.map(([k]) => `${k} = ?`).join(', ')} WHERE id = ?`).run(...set.map(([, v]) => v), id);
     audit(req.user!.username, 'special_day_updated', 'special_day', id, b, req.ip);
-    return { ok: true };
+    refreshToday(id);
+    return { item: db.prepare(`SELECT ${DAY_COLS} FROM special_days WHERE id = ?`).get(id) };
   });
 
   app.delete('/api/special-days/:id', { preHandler: requireRole('ik') }, async (req) => {
     const { id } = req.params as { id: string };
     db.prepare('DELETE FROM special_days WHERE id = ?').run(id);
+    refreshToday(id);
     audit(req.user!.username, 'special_day_deleted', 'special_day', id, undefined, req.ip);
     return { ok: true };
   });

@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Building2, KeyRound, Plus, Power, ShieldCheck, UserCheck, Users as UsersIcon } from 'lucide-react';
 import { ROLE_LABELS, ROLES, type Role } from '@ertepano/shared';
 import { api, fmtAgo, useApi } from '../api';
-import { Avatar, Badge, Button, Callout, Card, cn, Copy, EmptyState, Field, Input, listItem, Modal, PageHeader, Select, SkeletonCard, td, th, trCls, useAuth, useToast } from '../ui';
+import { Avatar, Badge, Button, Callout, Card, cn, Copy, EmptyState, Field, Input, listItem, Modal, PageHeader, Select, SkeletonCard, td, th, trCls, useAuth, useConfirm, useToast } from '../ui';
 
 interface PanelUser {
   id: string;
@@ -26,6 +26,7 @@ const ROLE_HELP: Record<Role, string> = {
 export function Users() {
   const { user: me } = useAuth();
   const toast = useToast();
+  const confirm = useConfirm();
   const { data, reload } = useApi<{ items: PanelUser[] }>('/api/users');
   const [form, setForm] = useState<{ username: string; fullName: string; role: Role } | null>(null);
   const [secret, setSecret] = useState<{ username: string; password: string } | null>(null);
@@ -131,7 +132,7 @@ export function Users() {
                         <td className={cn(td, 'text-right whitespace-nowrap')}>
                           <div className="flex justify-end gap-1 opacity-70 transition-opacity group-hover:opacity-100">
                             {!ldap && (
-                              <Button size="sm" variant="ghost" icon={KeyRound} onClick={() => confirm('Yeni parola üretilsin mi?') && patch(u, { resetPassword: true })}>
+                              <Button size="sm" variant="ghost" icon={KeyRound} onClick={async () => (await confirm({ title: 'Parola sıfırlansın mı?', description: `${u.fullName} için yeni geçici parola üretilir; açık oturumları kapanır.`, confirmLabel: 'Sıfırla' })) && patch(u, { resetPassword: true })}>
                                 Parola sıfırla
                               </Button>
                             )}

@@ -3,7 +3,7 @@ import { CATEGORIES, KINDS, ROLE_CATEGORIES } from '@ertepano/shared';
 import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { audit, db, nowIso } from '../db.js';
-import { annDto, type AnnRow, approvedDevices, countTargets, deviceMatches, parseTargets } from '../announcements.js';
+import { annDto, type AnnRow, placementColumns, placementSchema, approvedDevices, countTargets, deviceMatches, parseTargets } from '../announcements.js';
 import { endAnnouncement, publish, republish } from '../lifecycle.js';
 import { uuid } from '../security.js';
 import { TEMPLATES } from '../templates.js';
@@ -22,7 +22,7 @@ const annInput = z.object({
   ackLabel: z.string().max(40).nullable().optional(),
   options: z.array(z.string().trim().min(1).max(80)).min(2).max(6).nullable().optional(),
   countdownTo: isoOrNull,
-  position: z.enum(['top-right', 'bottom-right', 'top-left', 'bottom-left']).nullable().optional(),
+  ...placementSchema,
   sound: z.boolean().default(false),
   targets: z.array(z.string().max(200)).min(1).default(['all']),
   showOnKiosk: z.boolean().default(true),
@@ -30,6 +30,13 @@ const annInput = z.object({
   endsAt: isoOrNull,
   publish: z.boolean().default(false),
 });
+
+/** Yerleşim yalnızca rozet için anlamlı; diğer türlerde boş yazılır. */
+function badgeCols(b: { kind?: string; position?: string | null; posX?: number | null; posY?: number | null; size?: number | null; opacity?: number | null }) {
+  if (b.kind !== 'badge') return [null, null, null, null];
+  const c = placementColumns(b);
+  return [c.pos_x, c.pos_y, c.size, c.opacity];
+}
 
 function validateKind(b: { kind?: string; options?: string[] | null; countdownTo?: string | null; startsAt?: string | null; endsAt?: string | null }) {
   if (b.kind === 'survey' && (!b.options || b.options.length < 2)) return 'Anket için en az 2 seçenek gerekli';
@@ -134,11 +141,11 @@ export async function announcementRoutes(app: FastifyInstance) {
     const now = nowIso();
     db.prepare(
       `INSERT INTO announcements(id, kind, category, title, body, emoji, image_url, color, require_ack, ack_label, options, countdown_to,
-         position, sound, targets, show_on_kiosk, status, starts_at, ends_at, created_by, created_at, updated_at)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?)`,
+         position, pos_x, pos_y, size, opacity, sound, targets, show_on_kiosk, status, starts_at, ends_at, created_by, created_at, updated_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'draft',?,?,?,?,?)`,
     ).run(
       id, b.kind, b.category, b.title, b.body, b.emoji ?? null, b.imageUrl ?? null, b.color ?? null, b.requireAck ? 1 : 0, b.ackLabel ?? null,
-      b.kind === 'survey' && b.options ? JSON.stringify(b.options) : null, b.countdownTo ?? null, b.position ?? null, b.sound ? 1 : 0,
+      b.kind === 'survey' && b.options ? JSON.stringify(b.options) : null, b.countdownTo ?? null, b.position ?? null, ...badgeCols(b), b.sound ? 1 : 0,
       JSON.stringify(b.targets), b.showOnKiosk ? 1 : 0, b.startsAt ?? null, b.endsAt ?? null, req.user!.username, now, now,
     );
     audit(req.user!.username, 'announcement_created', 'announcement', id, { title: b.title, publish: b.publish }, req.ip);
@@ -163,11 +170,11 @@ export async function announcementRoutes(app: FastifyInstance) {
     if (err) return reply.code(400).send({ error: err });
     db.prepare(
       `UPDATE announcements SET kind=?, category=?, title=?, body=?, emoji=?, image_url=?, color=?, require_ack=?, ack_label=?, options=?,
-         countdown_to=?, position=?, sound=?, targets=?, show_on_kiosk=?, starts_at=?, ends_at=?, updated_at=? WHERE id=?`,
+         countdown_to=?, position=?, pos_x=?, pos_y=?, size=?, opacity=?, sound=?, targets=?, show_on_kiosk=?, starts_at=?, ends_at=?, updated_at=? WHERE id=?`,
     ).run(
       merged.kind, merged.category, merged.title, merged.body ?? '', merged.emoji ?? null, merged.imageUrl ?? null, merged.color ?? null,
       merged.requireAck ? 1 : 0, merged.ackLabel ?? null, merged.kind === 'survey' && merged.options ? JSON.stringify(merged.options) : null,
-      merged.countdownTo ?? null, merged.position ?? null, merged.sound ? 1 : 0, JSON.stringify(merged.targets), merged.showOnKiosk ? 1 : 0,
+      merged.countdownTo ?? null, merged.position ?? null, ...badgeCols(merged), merged.sound ? 1 : 0, JSON.stringify(merged.targets), merged.showOnKiosk ? 1 : 0,
       merged.startsAt ?? null, merged.endsAt ?? null, nowIso(), id,
     );
     audit(req.user!.username, 'announcement_updated', 'announcement', id, b, req.ip);

@@ -1,4 +1,5 @@
-import type { AgentAnnouncement, Category, Kind, SignedItem } from '@ertepano/shared';
+import { z } from 'zod';
+import { type AgentAnnouncement, BADGE_POSITIONS, type Category, type Kind, type SignedItem } from '@ertepano/shared';
 import { db } from './db.js';
 import { sign } from './security.js';
 
@@ -16,6 +17,10 @@ export interface AnnRow {
   options: string | null;
   countdown_to: string | null;
   position: string | null;
+  pos_x: number | null;
+  pos_y: number | null;
+  size: number | null;
+  opacity: number | null;
   sound: number;
   targets: string;
   show_on_kiosk: number;
@@ -89,6 +94,34 @@ export function activeForDevice(d: DeviceRow): AnnRow[] {
   return activeAnnouncements().filter((a) => deviceMatches(d, parseTargets(a.targets)));
 }
 
+/** Rozet yerleşimi girdisi (duyuru ve özel gün formları ortak). Serbest konumda posX/posY zorunlu. */
+export const placementSchema = {
+  position: z.enum([...(Object.keys(BADGE_POSITIONS) as [keyof typeof BADGE_POSITIONS]), 'custom']).nullable().optional(),
+  posX: z.number().min(0).max(100).nullable().optional(),
+  posY: z.number().min(0).max(100).nullable().optional(),
+  size: z.number().int().min(64).max(480).nullable().optional(),
+  opacity: z.number().min(0.2).max(1).nullable().optional(),
+};
+
+/** Hazır konumda serbest koordinat saklanmaz (konum her zaman hazır noktadan hesaplanır). */
+export const placementColumns = (p: { position?: string | null; posX?: number | null; posY?: number | null; size?: number | null; opacity?: number | null }) => ({
+  pos_x: p.position === 'custom' ? (p.posX ?? 50) : null,
+  pos_y: p.position === 'custom' ? (p.posY ?? 50) : null,
+  size: p.size ?? null,
+  opacity: p.opacity ?? null,
+});
+
+/** Rozet yerleşimi: hazır konum seçildiyse merkez noktası ondan hesaplanır, ajan yalnızca posX/posY'ye bakar. */
+export function placement(a: { position: string | null; pos_x: number | null; pos_y: number | null; size: number | null; opacity: number | null }) {
+  const preset = a.position && a.position in BADGE_POSITIONS ? BADGE_POSITIONS[a.position as keyof typeof BADGE_POSITIONS] : null;
+  return {
+    posX: a.pos_x ?? preset?.[0] ?? null,
+    posY: a.pos_y ?? preset?.[1] ?? null,
+    size: a.size,
+    opacity: a.opacity,
+  };
+}
+
 export function toAgentPayload(a: AnnRow): AgentAnnouncement {
   const now = new Date();
   const fallbackDays = a.kind === 'fullscreen' ? 1 : 7;
@@ -107,6 +140,7 @@ export function toAgentPayload(a: AnnRow): AgentAnnouncement {
     options: a.options ? (JSON.parse(a.options) as string[]) : null,
     countdownTo: a.countdown_to,
     position: a.position,
+    ...placement(a),
     sound: !!a.sound,
     emergencyId: a.emergency_id,
     drill: !!a.drill,
@@ -140,6 +174,10 @@ export function annDto(a: AnnRow) {
     options: a.options ? (JSON.parse(a.options) as string[]) : null,
     countdownTo: a.countdown_to,
     position: a.position,
+    posX: a.pos_x,
+    posY: a.pos_y,
+    size: a.size,
+    opacity: a.opacity,
     sound: !!a.sound,
     targets: parseTargets(a.targets),
     showOnKiosk: !!a.show_on_kiosk,

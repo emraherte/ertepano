@@ -33,6 +33,12 @@ interface AutoAnn {
   body: string;
   emoji: string | null;
   imageUrl?: string | null;
+  /** rozet yerleşimi (özel günler) */
+  position?: string | null;
+  posX?: number | null;
+  posY?: number | null;
+  size?: number | null;
+  opacity?: number | null;
   targets: string[];
   showOnKiosk: boolean;
   startsAt: string;
@@ -45,10 +51,11 @@ function ensureAuto(a: AutoAnn) {
   const id = uuid();
   const now = nowIso();
   db.prepare(
-    `INSERT INTO announcements(id, kind, category, title, body, emoji, image_url, require_ack, position, targets, show_on_kiosk, status, starts_at,
-       ends_at, auto_key, created_by, created_at, updated_at)
-     VALUES(?,?,?,?,?,?,?,0,?,?,?,'draft',?,?,?,'otomatik',?,?)`,
-  ).run(id, a.kind, a.category, a.title, a.body, a.emoji, a.imageUrl ?? null, a.kind === 'badge' ? 'top-right' : null,
+    `INSERT INTO announcements(id, kind, category, title, body, emoji, image_url, require_ack, position, pos_x, pos_y, size, opacity, targets, show_on_kiosk,
+       status, starts_at, ends_at, auto_key, created_by, created_at, updated_at)
+     VALUES(?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,'draft',?,?,?,'otomatik',?,?)`,
+  ).run(id, a.kind, a.category, a.title, a.body, a.emoji, a.imageUrl ?? null, a.kind === 'badge' ? (a.position ?? 'top-right') : null,
+    a.posX ?? null, a.posY ?? null, a.size ?? null, a.opacity ?? null,
     JSON.stringify(a.targets), a.showOnKiosk ? 1 : 0, a.startsAt, a.endsAt, a.autoKey, now, now);
   publish(id);
 }
@@ -64,11 +71,13 @@ export function runDailyAutomation() {
 
   const days = db.prepare('SELECT * FROM special_days WHERE enabled = 1 AND (month_day = ? OR date = ?)').all(md, today) as {
     id: string; name: string; emoji: string | null; image_url: string | null; message: string | null; kind: 'badge' | 'toast' | 'banner';
+    position: string | null; pos_x: number | null; pos_y: number | null; size: number | null; opacity: number | null;
   }[];
   for (const d of days) {
     ensureAuto({
       autoKey: `sd:${d.id}:${today}`, kind: d.kind, category: 'genel', title: d.name, body: d.message ?? '', emoji: d.emoji,
-      imageUrl: d.image_url, targets: ['all'], showOnKiosk: true, startsAt: dayStart.toISOString(), endsAt: dayEnd,
+      imageUrl: d.image_url, position: d.position, posX: d.pos_x, posY: d.pos_y, size: d.size, opacity: d.opacity,
+      targets: ['all'], showOnKiosk: true, startsAt: dayStart.toISOString(), endsAt: dayEnd,
     });
   }
 

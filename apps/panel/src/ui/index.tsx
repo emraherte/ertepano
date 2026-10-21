@@ -6,7 +6,6 @@ import {
   forwardRef,
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useCallback,
   useContext,
@@ -23,6 +22,8 @@ import { cn } from './cn';
 
 export { cn } from './cn';
 export { ThemeProvider, useTheme } from './theme';
+export { Select, type SelectProps } from './select';
+export { ConfirmProvider, useConfirm, type ConfirmOptions } from './confirm';
 
 // ---------------------------------------------------------------------------------------------
 // Oturum
@@ -364,17 +365,6 @@ export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputE
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, ...rest }, ref) {
   return <textarea ref={ref} className={cn(fieldBase, 'min-h-[96px] resize-y py-2.5 leading-relaxed', className)} {...rest} />;
 });
-
-export function Select({ className, children, ...rest }: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <div className={cn('relative', className)}>
-      <select className={cn(fieldBase, 'h-10 cursor-pointer appearance-none pr-9')} {...rest}>
-        {children}
-      </select>
-      <ChevronDown size={16} className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-slate-400" />
-    </div>
-  );
-}
 
 export function Field({ label, hint, children, className }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (

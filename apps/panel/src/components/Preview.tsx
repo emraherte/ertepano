@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { CATEGORY_COLORS, type Category, type Kind } from '@ertepano/shared';
-import { cn } from '../ui';
+import { BadgeArt, centerOf } from './PlacementPicker';
 
 export interface PreviewData {
   kind: Kind;
@@ -16,6 +16,10 @@ export interface PreviewData {
   options?: string[] | null;
   countdownTo?: string | null;
   position?: string | null;
+  posX?: number | null;
+  posY?: number | null;
+  size?: number | null;
+  opacity?: number | null;
   drill?: boolean;
   emergency?: boolean;
 }
@@ -41,8 +45,7 @@ const pop = { initial: { opacity: 0, y: 10, scale: 0.97 }, animate: { opacity: 1
 export function Preview({ d }: { d: PreviewData }) {
   const c = d.color || CATEGORY_COLORS[d.category];
   const cd = useCountdown(d.kind === 'countdown' ? d.countdownTo : null);
-  const pos = d.position ?? 'top-right';
-  const badgePos = cn(pos.startsWith('top') ? 'top-[5%]' : 'bottom-[11%]', pos.endsWith('right') ? 'right-[3%]' : 'left-[3%]');
+  const badgeAt = centerOf({ position: d.position ?? 'top-right', posX: d.posX ?? null, posY: d.posY ?? null, size: null, opacity: null });
 
   return (
     <div className="w-full">
@@ -106,8 +109,15 @@ export function Preview({ d }: { d: PreviewData }) {
             )}
 
             {d.kind === 'badge' && (
-              <motion.div key={`badge-${pos}`} {...pop} className={cn('absolute flex aspect-square w-[15%] items-center justify-center text-[34px] opacity-95 drop-shadow-lg', badgePos)}>
-                {d.imageUrl ? <img src={d.imageUrl} alt="" className="h-full w-full object-contain" /> : <span>{d.emoji || '🏢'}</span>}
+              <motion.div
+                key="badge"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: d.opacity ?? 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute aspect-square -translate-x-1/2 -translate-y-1/2 transition-[left,top,width] duration-300 [container-type:inline-size]"
+                style={{ left: `${badgeAt[0]}%`, top: `${badgeAt[1]}%`, width: `${Math.max(((d.size ?? 160) / 1920) * 100, 4)}%` }}
+              >
+                <BadgeArt imageUrl={d.imageUrl} emoji={d.emoji} />
               </motion.div>
             )}
 

@@ -28,6 +28,7 @@ import {
   trClick,
   trCls,
   useToast,
+  useConfirm,
 } from '../ui';
 
 type Filter = 'all' | 'online' | 'pending' | 'alerts' | 'offline';
@@ -82,6 +83,7 @@ function Spark({ values, max, color = '#10b981', label }: { values: number[]; ma
 
 function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void; onSaved: () => void }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const { data } = useApi<{ item: Device; telemetry: { cpuLoad: number; ramFreeMb: number; diskFreeGb: number; at: string }[]; reports: { id: string; kind: string; text: string; status: string; createdAt: string }[] }>(`/api/devices/${id}`);
   const [edit, setEdit] = useState<{ location: string; department: string; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -113,7 +115,7 @@ function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void
         d && (
           <>
             {d.status !== 'blocked' ? (
-              <Button variant="ghost" icon={Ban} className="text-rose-600 dark:text-rose-400" disabled={busy} onClick={() => confirm('Cihaz engellensin mi? Bağlantısı kesilir, duyuru alamaz.') && save({ status: 'blocked' })}>
+              <Button variant="ghost" icon={Ban} className="text-rose-600 dark:text-rose-400" disabled={busy} onClick={async () => (await confirm({ title: 'Cihaz engellensin mi?', description: 'Bağlantısı hemen kesilir ve engel kaldırılana kadar duyuru alamaz.', confirmLabel: 'Engelle', tone: 'danger' })) && save({ status: 'blocked' })}>
                 Engelle
               </Button>
             ) : (

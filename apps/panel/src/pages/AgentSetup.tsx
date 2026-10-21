@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ExternalLink, FileJson, KeyRound, MapPin, Plus, Puzzle, ShieldCheck, Tag, Tv, XCircle } from 'lucide-react';
 import { api, fmtDateTime, useApi } from '../api';
-import { Badge, Button, buttonClass, Callout, Card, CardHeader, cn, Copy, EmptyState, Field, Input, listItem, Modal, PageHeader, Skeleton, SkeletonCard, Switch, useToast } from '../ui';
+import { Badge, Button, buttonClass, Callout, Card, CardHeader, cn, Copy, EmptyState, Field, Input, listItem, Modal, PageHeader, Skeleton, SkeletonCard, Switch, useConfirm, useToast } from '../ui';
 
 interface EnrollKey {
   id: string;
@@ -81,6 +81,7 @@ const STEPS = [
 
 export function AgentSetup() {
   const toast = useToast();
+  const confirm = useConfirm();
   const { data, reload } = useApi<{ items: EnrollKey[]; publicKey: string }>('/api/enroll-keys');
   const [selected, setSelected] = useState<string | null>(null);
   const [cfg, setCfg] = useState<object | null>(null);
@@ -114,7 +115,7 @@ export function AgentSetup() {
     }
   };
   const revoke = async (k: EnrollKey) => {
-    if (!confirm(`"${k.label}" anahtarı iptal edilsin mi? Kayıtlı cihazlar etkilenmez, yeni kayıt yapılamaz.`)) return;
+    if (!(await confirm({ title: 'Kayıt anahtarı iptal edilsin mi?', description: `"${k.label}" ile yeni cihaz kaydı yapılamaz. Daha önce kaydolmuş cihazlar etkilenmez.`, confirmLabel: 'İptal et', tone: 'danger' }))) return;
     try {
       await api(`/api/enroll-keys/${k.id}/revoke`, { method: 'POST' });
       toast('Anahtar iptal edildi');

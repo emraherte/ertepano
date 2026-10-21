@@ -32,6 +32,7 @@ import { CATEGORY_LABELS, KIND_LABELS, ROLE_CATEGORIES, type Category, type Kind
 import { api, fromLocalInput, toLocalInput, uploadImage, useApi } from '../api';
 import type { Announcement, Template } from '../types';
 import { Preview } from '../components/Preview';
+import { PlacementPicker } from '../components/PlacementPicker';
 import { TargetPicker } from '../components/TargetPicker';
 import {
   Badge,
@@ -74,12 +75,6 @@ const END_PRESETS: [string, number | null][] = [
   ['1 hafta', 168],
 ];
 
-const POSITIONS: [string, string][] = [
-  ['top-left', 'Sol üst'],
-  ['top-right', 'Sağ üst'],
-  ['bottom-left', 'Sol alt'],
-  ['bottom-right', 'Sağ alt'],
-];
 
 interface Form {
   kind: Kind;
@@ -93,6 +88,10 @@ interface Form {
   options: string[];
   countdownTo: string | null;
   position: string;
+  posX: number | null;
+  posY: number | null;
+  size: number | null;
+  opacity: number | null;
   sound: boolean;
   targets: string[];
   showOnKiosk: boolean;
@@ -102,7 +101,7 @@ interface Form {
 
 const blank = (category: Category): Form => ({
   kind: 'toast', category, title: '', body: '', emoji: '📢', imageUrl: null, requireAck: false, ackLabel: '', options: ['', ''],
-  countdownTo: null, position: 'top-right', sound: false, targets: ['all'], showOnKiosk: true, startsAt: null, endsAt: null,
+  countdownTo: null, position: 'top-right', posX: null, posY: null, size: null, opacity: null, sound: false, targets: ['all'], showOnKiosk: true, startsAt: null, endsAt: null,
 });
 
 const endOfDay = () => {
@@ -149,7 +148,7 @@ export function AnnouncementEditor() {
     if (!a) return;
     setForm({
       kind: a.kind, category: a.category, title: a.title, body: a.body, emoji: a.emoji ?? '', imageUrl: a.imageUrl, requireAck: a.requireAck,
-      ackLabel: a.ackLabel ?? '', options: a.options ?? ['', ''], countdownTo: a.countdownTo, position: a.position ?? 'top-right', sound: a.sound,
+      ackLabel: a.ackLabel ?? '', options: a.options ?? ['', ''], countdownTo: a.countdownTo, position: a.position ?? 'top-right', posX: a.posX, posY: a.posY, size: a.size, opacity: a.opacity, sound: a.sound,
       targets: a.targets, showOnKiosk: a.showOnKiosk, startsAt: a.startsAt, endsAt: a.endsAt,
     });
     setSchedule(!!a.startsAt && a.status !== 'active' && Date.parse(a.startsAt) > Date.now());
@@ -265,6 +264,7 @@ export function AnnouncementEditor() {
       requireAck: form.kind === 'toast' && form.requireAck, ackLabel: form.ackLabel || null,
       options: form.kind === 'survey' ? form.options.map((o) => o.trim()).filter(Boolean) : null,
       countdownTo: form.kind === 'countdown' ? form.countdownTo : null, position: form.kind === 'badge' ? form.position : null,
+      ...(form.kind === 'badge' ? { posX: form.position === 'custom' ? form.posX : null, posY: form.position === 'custom' ? form.posY : null, size: form.size, opacity: form.opacity } : {}),
       sound: form.sound, targets: form.targets, showOnKiosk: form.showOnKiosk,
       startsAt: schedule ? form.startsAt : null, endsAt: form.endsAt, publish,
     };
@@ -395,14 +395,13 @@ export function AnnouncementEditor() {
 
               {form.kind === 'badge' && (
                 <div>
-                  <div className="mb-2 text-[13px] font-medium text-slate-700 dark:text-slate-300">Rozet konumu</div>
-                  <div className="grid w-fit grid-cols-2 gap-2">
-                    {POSITIONS.map(([v, l]) => (
-                      <Chip key={v} on={form.position === v} onClick={() => set('position', v)}>
-                        {l}
-                      </Chip>
-                    ))}
-                  </div>
+                  <div className="mb-3 text-[13px] font-medium text-slate-700 dark:text-slate-300">Ekrandaki yeri</div>
+                  <PlacementPicker
+                    value={form}
+                    imageUrl={form.imageUrl}
+                    emoji={form.emoji}
+                    onChange={(p) => setForm((f) => (f ? { ...f, ...p, position: p.position ?? 'top-right' } : f))}
+                  />
                 </div>
               )}
 

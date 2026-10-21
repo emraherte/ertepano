@@ -203,6 +203,19 @@ const MIGRATIONS: string[] = [
   ALTER TABLE users ADD COLUMN email TEXT;
   ALTER TABLE users ADD COLUMN ldap_dn TEXT;
   `,
+  // 3: rozet yerleşimi (konum, boyut, saydamlık) — duyurular ve özel günler
+  `
+  ALTER TABLE announcements ADD COLUMN pos_x REAL;
+  ALTER TABLE announcements ADD COLUMN pos_y REAL;
+  ALTER TABLE announcements ADD COLUMN size INTEGER;
+  ALTER TABLE announcements ADD COLUMN opacity REAL;
+  ALTER TABLE special_days ADD COLUMN position TEXT;
+  ALTER TABLE special_days ADD COLUMN pos_x REAL;
+  ALTER TABLE special_days ADD COLUMN pos_y REAL;
+  ALTER TABLE special_days ADD COLUMN size INTEGER;
+  ALTER TABLE special_days ADD COLUMN opacity REAL;
+  UPDATE special_days SET kind = 'badge', position = 'bottom-right' WHERE month_day = '11-10' AND kind = 'banner';
+  `,
 ];
 
 function migrate() {

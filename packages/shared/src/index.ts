@@ -51,6 +51,33 @@ export const ROLE_CATEGORIES: Record<Role, Category[]> = {
 
 export const EMERGENCY_ROLES: Role[] = ['admin', 'isg', 'it'];
 
+/** Rozet için hazır konumlar → merkez noktası (ekranın % olarak yatay, dikey konumu). */
+export const BADGE_POSITIONS = {
+  'top-left': [7, 10],
+  'top-center': [50, 10],
+  'top-right': [93, 10],
+  'middle-left': [7, 50],
+  center: [50, 50],
+  'middle-right': [93, 50],
+  'bottom-left': [7, 86],
+  'bottom-center': [50, 86],
+  'bottom-right': [93, 86],
+} as const satisfies Record<string, readonly [number, number]>;
+export type BadgePosition = keyof typeof BADGE_POSITIONS | 'custom';
+export const BADGE_POSITION_LABELS: Record<BadgePosition, string> = {
+  'top-left': 'Sol üst',
+  'top-center': 'Üst orta',
+  'top-right': 'Sağ üst',
+  'middle-left': 'Sol orta',
+  center: 'Ekran ortası',
+  'middle-right': 'Sağ orta',
+  'bottom-left': 'Sol alt',
+  'bottom-center': 'Alt orta',
+  'bottom-right': 'Sağ alt',
+  custom: 'Serbest konum',
+};
+export const BADGE_SIZE = { min: 64, max: 480, default: 160 } as const;
+
 export type AnnouncementStatus = 'draft' | 'scheduled' | 'active' | 'ended';
 
 /** Ajanın ekranda gösterdiği, imzalanan yük (docs/PROTOKOL.md §4). */
@@ -68,6 +95,12 @@ export interface AgentAnnouncement {
   options: string[] | null;
   countdownTo: string | null;
   position: string | null;
+  /** Rozet merkezinin ekrandaki yeri (çalışma alanının yüzdesi, 0–100) */
+  posX: number | null;
+  posY: number | null;
+  /** Rozet boyutu (mantıksal px) ve saydamlık (0.2–1) */
+  size: number | null;
+  opacity: number | null;
   sound: boolean;
   emergencyId: string | null;
   drill: boolean;

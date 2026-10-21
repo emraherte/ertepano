@@ -91,7 +91,10 @@ Ajan: `sig`'i doğrula → `payload`'ı parse et → `expiresAt` geçmişse veya
   "ackLabel": "Okudum, anladım",
   "options": ["Evet", "Hayır"] | null,          // survey
   "countdownTo": "2026-10-21T15:00:00Z" | null, // countdown
-  "position": "top-right" | "bottom-right" | "top-left" | "bottom-left" | null, // badge
+  "position": "top-left" | "top-center" | "top-right" | "middle-left" | "center" | "middle-right" | "bottom-left" | "bottom-center" | "bottom-right" | "custom" | null, // badge
+  "posX": 93, "posY": 10,                     // badge: rozet MERKEZİ, birincil monitör çalışma alanının yüzdesi (0–100); sunucu hazır konumdan da hesaplar
+  "size": 160 | null,                          // badge: mantıksal px (64–480), null = 160
+  "opacity": 1 | null,                         // badge: 0.2–1, null = 1
   "sound": false,
   "emergencyId": "uuid" | null,                // fullscreen yoklama için
   "drill": false,                              // tatbikat → "TATBİKAT" etiketi
