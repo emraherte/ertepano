@@ -37,8 +37,23 @@ exe yanındaki `agent.json` → `ERTEPANO_CONFIG` (geliştirme). Ardından **GPO
 ```json
 { "serverUrl": "https://pano.sirket.local", "enrollKey": "EK-XXXX-XXXX-XXXX", "publicKey": "<base64>", "location": "Gebze Fabrika", "department": "Üretim" }
 ```
-- `publicKey`: sunucunun imza anahtarı (Panel → Ajan kurulumu). **Üretimde mutlaka verin**; boşsa ilk kayıtta gelen anahtar sabitlenir (TOFU).
+- `publicKey`: sunucunun imza anahtarı (Panel → Ajan kurulumu). **Zorunlu.** Hizmetle çalışan arayüz anahtarı yalnızca bu
+  bilgisayarın yapılandırmasından alır (hizmetten asla); yoksa hiçbir duyuru göstermez, durum "Genel anahtar yapılandırılmamış" olur.
+  Hizmetsiz geliştirme modunda anahtar yoksa ilk kayıtta gelen anahtar yalnızca **https** üzerinden sabitlenir (TOFU); düz http'de kayıt yapılmaz.
 - `location` / `department`: ilk kayıtta cihaz etiketi önerisi (kayıt anahtarının varsayılanı yoksa).
+
+### Güvenlik kuralları
+- `agent.json` (ProgramData ya da exe yanı) yalnızca **sahibi SYSTEM ya da Yöneticiler** ise okunur; standart kullanıcının
+  bıraktığı dosya günlüğe uyarı yazılarak yok sayılır. Elle kopyaladıysanız: `icacls agent.json /setowner *S-1-5-32-544`.
+  GPP → Files ile dağıtılan dosyanın sahibi zaten SYSTEM'dir.
+- `ERTEPANO_CONFIG` yalnız geliştirmede okunur (hizmetin `--console` modu, hizmetsiz arayüz); hizmette ve hizmetin başlattığı arayüzde yok sayılır.
+- Hizmet her başlangıçta `%ProgramData%\ErtePano` ve `\service` klasörlerinin sahibini SYSTEM yapar, DACL'i sıfırlar
+  (ErtePano: Kullanıcılar okur; service: yalnız SYSTEM + Yöneticiler). Kullanıcının önceden yarattığı `service` klasörü kenara alınır,
+  bağlantı (junction) ise kaldırılır. MSI de klasörleri bu izinlerle yaratır.
+- Boru: etkileşimli kullanıcılar yalnızca okuma + veri yazma hakkına sahiptir (yeni boru örneği açamaz). Arayüz bağlandığı
+  sunucunun oturum 0'da çalışan, aynı klasördeki `ertepano-service.exe` olduğunu doğrular.
+- Görseller webview'e doğrudan yüklenmez (CSP `img-src 'self' data: blob:`): arayüz yalnızca yapılandırılmış sunucunun
+  `/media/` yolundan PNG/JPG/GIF/WEBP (≤ 5 MB) indirip `data:` URL olarak verir — NTLM kimlik bilgisi sızdırma riski yok.
 
 | Dosya | İçerik |
 |---|---|
@@ -56,7 +71,9 @@ cargo build --workspace                       # target/debug/ertepano-service.ex
 # hizmeti kurmadan ön planda çalıştır (bekçi kapalı; kimlik %APPDATA%\ErtePano\service-console)
 $env:ERTEPANO_CONFIG = "C:\yol\agent.json"
 .\target\debug\ertepano-service.exe --console
-# ikinci terminalde arayüz: boru varsa hizmet üzerinden bağlanır
+# ikinci terminalde arayüz: boru varsa hizmet üzerinden bağlanır. Konsol modundaki hizmet SYSTEM/oturum 0'da
+# çalışmadığı için sunucu doğrulamasını yalnız geliştirmede kapatın:
+$env:ERTEPANO_DEV_PIPE = "1"; $env:ERTEPANO_CONFIG = "C:\yol\agent.json"
 .\target\debug\ertepano_agent.exe
 ```
 Hizmet olmadan yalnız arayüzü çalıştırırsanız sunucuya doğrudan bağlanır (eski davranış).

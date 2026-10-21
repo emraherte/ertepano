@@ -3,7 +3,7 @@
 //! oturumlarındaki arayüzlere (ertepano_agent.exe) dağıtır; arayüzü her etkin oturumda başlatır ve ayakta tutar.
 //!
 //!   ertepano-service.exe              SCM tarafından başlatılır (MSI kurar)
-//!   ertepano-service.exe --console    hizmet olmadan ön planda (test; bekçi kapalı, ERTEPANO_DATA ile veri klasörü)
+//!   ertepano-service.exe --console    hizmet olmadan ön planda (test; bekçi kapalı; ERTEPANO_CONFIG / ERTEPANO_DATA okunur)
 //!   ertepano-service.exe install      MSI'sız el ile kurulum (yönetici)
 //!   ertepano-service.exe uninstall
 #![cfg_attr(not(windows), allow(dead_code))]
@@ -102,13 +102,11 @@ mod imp {
     }
 
     fn data_dir(mode: Mode) -> PathBuf {
-        if let Some(d) = std::env::var_os("ERTEPANO_DATA") {
-            return PathBuf::from(d);
-        }
         match mode {
+            // hizmet modunda ortam değişkeni dikkate alınmaz: veri yeri sabit ve kilitli
             Mode::Service => config::program_data().join("service"),
             // konsol testi: kurulu hizmetin kimliğine dokunma
-            Mode::Console => config::user_data().join("service-console"),
+            Mode::Console => std::env::var_os("ERTEPANO_DATA").map(PathBuf::from).unwrap_or_else(|| config::user_data().join("service-console")),
         }
     }
 
@@ -205,6 +203,10 @@ mod imp {
 
     fn run_blocking(mode: Mode, scm: Option<(std::sync::mpsc::Receiver<()>, Arc<Notify>)>) {
         let dir = data_dir(mode);
+        if mode == Mode::Service {
+            // günlük dahil hiçbir dosya yazılmadan önce: sahip SYSTEM, DACL sıfır, bağlantı yok
+            crate::winsys::harden_data_dirs(&config::program_data(), &dir);
+        }
         let _ = std::fs::create_dir_all(&dir);
         ertepano_core::log::init(dir.join("service.log"));
         ertepano_core::log::log(&format!(
@@ -212,7 +214,6 @@ mod imp {
             if mode == Mode::Service { "Windows hizmeti" } else { "konsol" }
         ));
         if mode == Mode::Service {
-            crate::winsys::secure_dir(&dir);
             ensure_failure_actions();
         }
 
@@ -243,7 +244,8 @@ mod imp {
             let mut sd = shutdown_rx.clone();
             tokio::spawn(async move {
                 let cfg = loop {
-                    if let Some(c) = config::load() {
+                    // ERTEPANO_CONFIG yalnız konsol (geliştirme) modunda
+                    if let Some(c) = config::load(mode == Mode::Console) {
                         break c;
                     }
                     h.set_status_direct(Status::NoConfig);

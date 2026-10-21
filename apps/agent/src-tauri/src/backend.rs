@@ -43,10 +43,10 @@ impl Backend {
 
 /// Hizmetin borusu açık mı? (Bağlanıp hemen bırakır; hizmet bunu boş bir bağlantı olarak görür.)
 pub fn service_available() -> bool {
-    match std::fs::OpenOptions::new().read(true).write(true).open(PIPE_NAME) {
+    match std::fs::OpenOptions::new().read(true).open(PIPE_NAME) {
         Ok(_) => true,
-        // ERROR_PIPE_BUSY: boru var ama tüm örnekler meşgul
-        Err(e) => e.raw_os_error() == Some(231),
+        // ERROR_ACCESS_DENIED / ERROR_PIPE_BUSY: boru var
+        Err(e) => matches!(e.raw_os_error(), Some(5) | Some(231)),
     }
 }
 
@@ -129,16 +129,19 @@ impl PipeLink {
     #[cfg(windows)]
     async fn session(&self, app: &AppHandle) -> std::io::Result<()> {
         use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        use tokio::net::windows::named_pipe::ClientOptions;
-
         let pipe = loop {
-            match ClientOptions::new().open(PIPE_NAME) {
+            match crate::pipesec::open(PIPE_NAME) {
                 Ok(p) => break p,
                 Err(e) if e.raw_os_error() == Some(231) => tokio::time::sleep(Duration::from_millis(200)).await,
                 Err(e) => return Err(e),
             }
         };
-        ertepano_core::log::log("hizmete bağlanıldı");
+        let managed = agent(app).managed;
+        if let Err(e) = crate::pipesec::verify_server(&pipe, managed) {
+            ertepano_core::log::log(&format!("GÜVENLİK: {e} — bağlantı kesildi"));
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, e));
+        }
+        ertepano_core::log::log("hizmete bağlanıldı (sunucu doğrulandı)");
         let (rd, mut wr) = tokio::io::split(pipe);
         let mut lines = BufReader::new(rd).lines();
         loop {
@@ -170,13 +173,13 @@ fn on_message(app: &AppHandle, line: &str) {
     let ag: Arc<Agent> = agent(app);
     match v.get("t").and_then(|t| t.as_str()).unwrap_or("") {
         "state" => {
-            let key = v.get("publicKey").and_then(|k| k.as_str()).filter(|k| !k.is_empty()).map(String::from);
-            {
+            // hizmetin bildirdiği "publicKey" kasıtlı olarak YOK SAYILIR (bkz. Agent::key)
+            let has_key = {
                 let mut g = lock(&ag.inner);
-                g.service_key = key;
                 g.service_info = v.clone();
-            }
-            let st = Status::from_code(v.get("status").and_then(|s| s.as_str()).unwrap_or(""));
+                ag.key(&g).is_some()
+            };
+            let st = if has_key { Status::from_code(v.get("status").and_then(|s| s.as_str()).unwrap_or("")) } else { Status::NoKey };
             set_status(app, st);
             let _ = app.emit("status", json!({ "code": st.code(), "text": st.text() }));
         }

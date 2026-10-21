@@ -37,9 +37,10 @@ function el(tag, attrs, ...children) {
   return n;
 }
 
-/** Yalnızca http(s) görseller. */
+/** Güvenli görsel adresi ya da null. */
 function safeImage(url) {
-  return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null;
+  // yalnızca ajanın sunucudan indirip verdiği data: URL'ler (CSP dış adreslere kapalı, bkz. images.rs)
+  return typeof url === 'string' && /^data:image\/(png|jpeg|gif|webp);base64,/i.test(url) ? url : null;
 }
 
 function fmtDate(iso) {

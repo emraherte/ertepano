@@ -1,5 +1,7 @@
 {
-  "serverUrl": "http://localhost:4100",
-  "enrollKey": "EK-XXXX-XXXX",
-  "publicKey": ""
+  "serverUrl": "https://pano.sirket.local",
+  "enrollKey": "EK-XXXX-XXXX-XXXX",
+  "publicKey": "ZORUNLU: Panel > Ajan kurulumu sayfasindaki agent.json icindeki publicKey (base64)",
+  "location": "",
+  "department": ""
 }

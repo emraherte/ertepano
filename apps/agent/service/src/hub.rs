@@ -99,7 +99,6 @@ impl Hub {
             "deviceId": c.and_then(|c| c.device_id()),
             "serverUrl": c.map(|c| c.cfg.server_url.clone()),
             "configSource": c.map(|c| c.cfg.source.clone()),
-            "publicKey": self.key(),
             "pending": c.map(|c| c.pending()).unwrap_or(0),
             "version": VERSION,
         })

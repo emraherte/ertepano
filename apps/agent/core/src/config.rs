@@ -6,6 +6,10 @@
 //!   3. exe'nin yanındaki agent.json
 //!   4. ERTEPANO_CONFIG ortam değişkeni               (geliştirme)
 //! Ardından HKLM\SOFTWARE\Policies\ErtePano (GPO yönetim şablonu, ErtePano.admx) dolu alanları ezer.
+//!
+//! Güvenlik: dosya kaynakları (1, 3) yalnızca dosyanın sahibi SYSTEM ya da Yöneticiler ise kabul edilir — standart
+//! kullanıcı kendi sunucu adresi + imza anahtarıyla agent.json bırakıp sahte acil durum gösteremesin.
+//! ERTEPANO_CONFIG (4) yalnızca geliştirmede (hizmetin --console modu, hizmetsiz arayüz) okunur.
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -51,7 +55,18 @@ pub fn user_data() -> PathBuf {
     dir
 }
 
-fn from_file(path: &Path) -> Option<Config> {
+fn from_file(path: &Path, require_trusted_owner: bool) -> Option<Config> {
+    if !path.is_file() {
+        return None;
+    }
+    if require_trusted_owner && !crate::sys::trusted_owner(path) {
+        crate::log::log(&format!(
+            "UYARI: {} yok sayıldı — dosya sahibi SYSTEM ya da Yöneticiler değil (düzeltmek için: icacls \"{}\" /setowner *S-1-5-32-544)",
+            path.display(),
+            path.display()
+        ));
+        return None;
+    }
     let text = std::fs::read_to_string(path).ok()?;
     match serde_json::from_str::<Config>(text.trim_start_matches('\u{feff}')) {
         Ok(mut c) => {
@@ -77,13 +92,19 @@ fn from_registry(key: &str) -> Config {
     }
 }
 
-pub fn load() -> Option<Config> {
+/// `allow_dev_env`: ERTEPANO_CONFIG okunsun mu (yalnız geliştirme: hizmetin --console modu, hizmetsiz arayüz).
+pub fn load(allow_dev_env: bool) -> Option<Config> {
     let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
     let msi = from_registry(MSI_KEY);
-    let mut cfg = from_file(&program_data().join("agent.json"))
+    let mut cfg = from_file(&program_data().join("agent.json"), true)
         .or_else(|| (!msi.server_url.is_empty()).then_some(msi))
-        .or_else(|| exe_dir.and_then(|d| from_file(&d.join("agent.json"))))
-        .or_else(|| std::env::var_os("ERTEPANO_CONFIG").and_then(|p| from_file(Path::new(&p))))
+        .or_else(|| exe_dir.and_then(|d| from_file(&d.join("agent.json"), true)))
+        .or_else(|| {
+            if !allow_dev_env {
+                return None;
+            }
+            std::env::var_os("ERTEPANO_CONFIG").and_then(|p| from_file(Path::new(&p), false))
+        })
         .unwrap_or_default();
 
     let policy = from_registry(POLICY_KEY);

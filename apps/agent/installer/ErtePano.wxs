@@ -50,7 +50,32 @@
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLFOLDER" Name="ErtePano" />
       </Directory>
+      <Directory Id="CommonAppDataFolder">
+        <Directory Id="PROGRAMDATADIR" Name="ErtePano">
+          <Directory Id="SERVICEDATADIR" Name="service" />
+        </Directory>
+      </Directory>
     </Directory>
+
+    <!--
+      Veri klasörleri kilitli DACL ile (MsiLockPermissionsEx). Standart kullanıcı %ProgramData%\ErtePano'ya yazamaz
+      (sahte agent.json bırakamaz), service\ klasörünü (cihaz sırrı) hiç okuyamaz. Hizmet her başlangıçta sahibi
+      SYSTEM yapıp DACL'i yeniden yazar; ajan yalnızca sahibi SYSTEM/Yöneticiler olan agent.json'ı kabul eder.
+    -->
+    <DirectoryRef Id="PROGRAMDATADIR">
+      <Component Id="ProgramDataFolder" Guid="9B1F2C64-3E7A-4D2B-8C55-2F6A0D4E7B13" Win64="yes" KeyPath="yes">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)" />
+        </CreateFolder>
+      </Component>
+    </DirectoryRef>
+    <DirectoryRef Id="SERVICEDATADIR">
+      <Component Id="ServiceDataFolder" Guid="C3D84A1E-7F25-4B69-9E0D-5A1B6C2F8E47" Win64="yes" KeyPath="yes">
+        <CreateFolder>
+          <PermissionEx Sddl="D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
+        </CreateFolder>
+      </Component>
+    </DirectoryRef>
 
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="AgentUi" Guid="*" Win64="yes">
@@ -84,6 +109,8 @@
       <ComponentRef Id="AgentUi" />
       <ComponentRef Id="AgentService" />
       <ComponentRef Id="MsiConfig" />
+      <ComponentRef Id="ProgramDataFolder" />
+      <ComponentRef Id="ServiceDataFolder" />
     </Feature>
   </Product>
 </Wix>

@@ -7,6 +7,9 @@ mod agent;
 mod backend;
 mod commands;
 mod display;
+mod images;
+#[cfg(windows)]
+mod pipesec;
 mod tray;
 mod win;
 
@@ -51,6 +54,9 @@ fn main() {
             let ag = agent::agent(&handle);
             tray::build(&handle, !ag.managed)?;
 
+            if let Some(c) = ag.cfg.as_ref() {
+                images::init(&c.server_url);
+            }
             // Hizmet varsa (ya da hizmet bizi başlattıysa) boruyu kullan; yoksa sunucuya doğrudan bağlan.
             let use_service = ag.managed || backend::service_available();
             if use_service {
@@ -67,6 +73,10 @@ fn main() {
                 backend::set_status(&handle, Status::NoConfig);
             }
             ag.restore_cached();
+            if use_service && ag.key(&ertepano_core::lock(&ag.inner)).is_none() {
+                // hizmet modunda imza anahtarı yalnızca bu bilgisayarın yapılandırmasından gelir, borudan asla
+                backend::set_status(&handle, Status::NoKey);
+            }
             let st = ertepano_core::lock(&ag.inner).status;
             tray::set_status(&handle, st.text());
             std::thread::spawn(move || display::run_loop(handle));

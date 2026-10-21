@@ -25,7 +25,7 @@ fn wide(s: &str) -> Vec<u16> {
 
 /// SDDL'den güvenlik tanımı; boru oluşturulurken SECURITY_ATTRIBUTES olarak verilir.
 pub struct SecurityDescriptor {
-    psd: PSECURITY_DESCRIPTOR,
+    pub psd: PSECURITY_DESCRIPTOR,
     attrs: SECURITY_ATTRIBUTES,
 }
 
@@ -145,15 +145,78 @@ pub fn launch_in_session(session: u32, exe: &Path) -> windows::core::Result<u32>
     }
 }
 
-/// Hizmet veri klasörü: yalnızca SYSTEM ve Yöneticiler (cihaz sırrı burada). SID'ler dil bağımsız.
-pub fn secure_dir(dir: &Path) {
-    let out = std::process::Command::new("icacls")
-        .arg(dir)
-        .args(["/inheritance:r", "/grant:r", "*S-1-5-18:(OI)(CI)F", "*S-1-5-32-544:(OI)(CI)F", "/Q"])
-        .output();
-    match out {
-        Ok(o) if o.status.success() => {}
-        Ok(o) => ertepano_core::log::log(&format!("veri klasörü izinleri ayarlanamadı: {}", String::from_utf8_lossy(&o.stderr).trim())),
-        Err(e) => ertepano_core::log::log(&format!("icacls çalıştırılamadı: {e}")),
+/// %ProgramData%\ErtePano: sahibi SYSTEM; SYSTEM + Yöneticiler tam, Kullanıcılar yalnız okuma (arayüz agent.json'ı okur).
+const ROOT_SDDL: &str = "O:SYG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;0x1200a9;;;BU)";
+/// %ProgramData%\ErtePano\service: sahibi SYSTEM; yalnız SYSTEM + Yöneticiler (cihaz sırrı burada).
+const SERVICE_SDDL: &str = "O:SYG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)";
+
+fn enable_privilege(name: &str) {
+    use windows::Win32::Foundation::LUID;
+    use windows::Win32::Security::{
+        AdjustTokenPrivileges, LookupPrivilegeValueW, LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES,
+        TOKEN_QUERY,
+    };
+    use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+    unsafe {
+        let mut tok = HANDLE::default();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &mut tok).is_err() {
+            return;
+        }
+        let w = wide(name);
+        let mut luid = LUID::default();
+        if LookupPrivilegeValueW(PCWSTR::null(), PCWSTR(w.as_ptr()), &mut luid).is_ok() {
+            let tp = TOKEN_PRIVILEGES { PrivilegeCount: 1, Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }] };
+            let _ = AdjustTokenPrivileges(tok, false, Some(&tp), 0, None, None);
+        }
+        let _ = CloseHandle(tok);
+    }
+}
+
+/// Yalnızca bu nesnenin (klasörün) sahibini ve DACL'ini yazar — alt öğelere YAYILMAZ (SetFileSecurityW).
+/// Böylece kullanıcının önceden yerleştirdiği sabit bağlantılar üzerinden başka dosyaların izinleri değiştirilemez.
+fn set_object_sd(path: &Path, sddl: &str) -> Result<(), String> {
+    use windows::Win32::Security::{DACL_SECURITY_INFORMATION, GROUP_SECURITY_INFORMATION, OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION};
+    use windows::Win32::Security::SetFileSecurityW;
+    let sd = SecurityDescriptor::from_sddl(sddl).map_err(|e| e.to_string())?;
+    let p = wide(&path.to_string_lossy());
+    let info = OWNER_SECURITY_INFORMATION | GROUP_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION;
+    unsafe { SetFileSecurityW(PCWSTR(p.as_ptr()), info, sd.psd) }.ok().map_err(|e| e.to_string())
+}
+
+fn is_reparse_point(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    std::fs::symlink_metadata(path).map(|m| m.file_attributes() & 0x400 != 0).unwrap_or(false)
+}
+
+/// Hizmet modunda veri klasörlerini sertleştirir:
+/// - kullanıcının yarattığı bağlantı (junction/symlink) kaldırılır, gerçek klasör yaratılır;
+/// - ErtePano\ ve ErtePano\service\ sahibi SYSTEM yapılır, DACL sıfırlanır (açık ACE'ler gider);
+/// - sahibi SYSTEM/Yöneticiler olmayan (önceden kullanıcı yaratmış) service\ klasörü kullanılmaz, kenara alınır.
+pub fn harden_data_dirs(root: &Path, service: &Path) {
+    let log = ertepano_core::log::log;
+    enable_privilege("SeTakeOwnershipPrivilege");
+    enable_privilege("SeRestorePrivilege");
+    for dir in [root, service] {
+        if is_reparse_point(dir) {
+            log(&format!("GÜVENLİK: {} bir bağlantı (reparse point) — kaldırılıyor", dir.display()));
+            let _ = std::fs::remove_dir(dir);
+        }
+    }
+    let _ = std::fs::create_dir_all(root);
+    if let Err(e) = set_object_sd(root, ROOT_SDDL) {
+        log(&format!("{} izinleri ayarlanamadı: {e}", root.display()));
+    }
+    if service.exists() && !ertepano_core::sys::trusted_owner(service) {
+        // klasörü önce kendimize al (yalnız klasör nesnesi), sonra kenara taşı; içindekilere dokunma
+        let _ = set_object_sd(service, SERVICE_SDDL);
+        let aside = service.with_file_name(format!("service.reddedildi-{}", chrono::Local::now().format("%Y%m%d%H%M%S")));
+        match std::fs::rename(service, &aside) {
+            Ok(()) => log(&format!("GÜVENLİK: sahibi güvenilmeyen {} kenara alındı → {}", service.display(), aside.display())),
+            Err(e) => log(&format!("GÜVENLİK: güvenilmeyen {} taşınamadı: {e}", service.display())),
+        }
+    }
+    let _ = std::fs::create_dir_all(service);
+    if let Err(e) = set_object_sd(service, SERVICE_SDDL) {
+        log(&format!("{} izinleri ayarlanamadı: {e}", service.display()));
     }
 }

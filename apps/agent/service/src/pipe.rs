@@ -11,7 +11,9 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tokio::sync::watch;
 
-const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;GRGW;;;IU)";
+/// Etkileşimli kullanıcılar (IU) yalnızca okuma + veri yazma: 0x12008b = FILE_GENERIC_READ | FILE_WRITE_DATA.
+/// FILE_CREATE_PIPE_INSTANCE (0x4, GENERIC_WRITE içindedir) VERİLMEZ — kullanıcı sahte sunucu örneği açamaz.
+const PIPE_SDDL: &str = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GA;;;OW)(A;;0x12008b;;;IU)";
 const MAX_LINE: usize = 64 * 1024;
 
 pub async fn serve(hub: Arc<Hub>, allowed_exe: PathBuf, mut shutdown: watch::Receiver<bool>) {

@@ -29,6 +29,8 @@ pub enum Status {
     Offline,
     /// Arayüz: Windows hizmetine ulaşılamıyor
     NoService,
+    /// İmza doğrulama anahtarı yok (ya da düz HTTP üzerinden ilk-kullanımda-güven reddedildi)
+    NoKey,
 }
 
 impl Status {
@@ -43,6 +45,7 @@ impl Status {
             Status::Online => "online",
             Status::Offline => "offline",
             Status::NoService => "no_service",
+            Status::NoKey => "no_key",
         }
     }
     pub fn from_code(c: &str) -> Status {
@@ -55,6 +58,7 @@ impl Status {
             "online" => Status::Online,
             "offline" => Status::Offline,
             "no_service" => Status::NoService,
+            "no_key" => Status::NoKey,
             _ => Status::Starting,
         }
     }
@@ -69,6 +73,7 @@ impl Status {
             Status::Online => "Bağlı",
             Status::Offline => "Bağlantı yok (yeniden denenecek)",
             Status::NoService => "ErtePano hizmetine ulaşılamıyor",
+            Status::NoKey => "Genel anahtar yapılandırılmamış",
         }
     }
     pub fn connected(self) -> bool {
@@ -213,7 +218,20 @@ impl Client {
         host.set_status(s);
     }
 
+    /// Sabitlenmiş anahtar yokken ilk kayıtta sunucunun anahtarına güvenmek (TOFU) yalnızca HTTPS üzerinden kabul
+    /// edilir; düz HTTP'de ağdaki biri kendi anahtarını verip sahte duyuru imzalayabilir.
+    fn tofu_forbidden(&self) -> bool {
+        self.cfg.public_key.trim().is_empty() && lock(&self.st).tofu_key.is_none() && !self.cfg.server_url.to_ascii_lowercase().starts_with("https://")
+    }
+
     pub async fn run(self: Arc<Self>, host: Arc<dyn Host>) {
+        if self.tofu_forbidden() {
+            crate::log::log("GÜVENLİK: sunucu adresi https değil ve genel anahtar (publicKey) yapılandırılmamış — kayıt yapılmıyor");
+            self.set_status(host.as_ref(), Status::NoKey);
+            loop {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+        }
         let mut attempt = 0usize;
         loop {
             let mut welcomed = false;

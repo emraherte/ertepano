@@ -43,7 +43,7 @@ Kurulan bileşenler (MSI):
 |---|---|---|
 | Sunucu adresi | `https://pano.sirket.local` | Zorunlu |
 | Kayıt anahtarı | `EK-XXXX-XXXX-XXXX` | Zorunlu (yalnızca ilk kayıtta kullanılır) |
-| Sunucu imza anahtarı | panel → agent.json → `publicKey` | **Üretimde zorunlu** — sahte duyuru/acil durumu engeller |
+| Sunucu imza anahtarı | panel → agent.json → `publicKey` | **Zorunlu** — yoksa arayüz hiçbir duyuru göstermez ("Genel anahtar yapılandırılmamış"); sahte duyuru/acil durumu engeller |
 | Lokasyon | `Gebze Fabrika` | OU başına; cihaz ilk kayıtta etiketlenir, acil durum yoklaması lokasyon bazlı görünür |
 | Departman | `Üretim` | İsteğe bağlı |
 
@@ -79,7 +79,8 @@ Panelde cihaz *Cihazlar* sayfasında görünür (lokasyonuyla); yalnızca o ciha
 | MSI kurulmadı | *Olay Görüntüleyicisi → Windows Günlükleri → Uygulama*, kaynak **Application Management** ve **MsiInstaller**; paylaşım izinleri (Domain Computers) |
 | Kurulumu elle deneme | `msiexec /i \\…\ErtePano-Ajan-0.2.0-x64.msi /qn /l*v %TEMP%\ertepano.log` |
 | Hizmet çalışmıyor | `sc query ErtePanoAgent`, `%ProgramData%\ErtePano\service\service.log` |
-| "Yapılandırma bulunamadı" | `reg query HKLM\SOFTWARE\Policies\ErtePano` — GPO yönetim şablonu bağlı mı? |
+| "Yapılandırma bulunamadı" | `reg query HKLM\SOFTWARE\Policies\ErtePano` — GPO yönetim şablonu bağlı mı? `agent.json` kullanıyorsanız sahibi SYSTEM/Yöneticiler mi? (`service.log`: "yok sayıldı — dosya sahibi"; düzeltme `icacls agent.json /setowner *S-1-5-32-544`) |
+| "Genel anahtar yapılandırılmamış" | Sunucu imza anahtarı ilkesi (PublicKey) ayarlanmamış. Arayüz anahtarı yalnızca bu bilgisayarın yapılandırmasından alır |
 | "Kayıt anahtarı geçersiz" | Panelde anahtar iptal edilmiş olabilir → yenisini ilkeyle dağıtın |
 | Duyurular görünmüyor | Cihaz onaylı mı (*Cihazlar*)? `service.log`'da "duyuru reddedildi: imza geçersiz" → ilkedeki genel anahtar sunucununkiyle aynı mı? |
 | Arayüz açılmıyor | WebView2 Runtime kurulu mu (Windows 10 21H2+/11'de hazır); `%APPDATA%\ErtePano\agent.log` |

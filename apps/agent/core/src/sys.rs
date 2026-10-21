@@ -54,6 +54,25 @@ mod imp {
         }
     }
 
+    /// Dosyanın sahibi SYSTEM ya da BUILTIN\Administrators mı? (Standart kullanıcının bıraktığı yapılandırmayı reddetmek için.)
+    pub fn trusted_owner(path: &std::path::Path) -> bool {
+        use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
+        use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
+        use windows::Win32::Security::{IsWellKnownSid, WinBuiltinAdministratorsSid, WinLocalSystemSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID};
+        let p = wide(&path.to_string_lossy());
+        let mut owner = PSID::default();
+        let mut sd = PSECURITY_DESCRIPTOR::default();
+        unsafe {
+            let r = GetNamedSecurityInfoW(PCWSTR(p.as_ptr()), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, Some(&mut owner), None, None, None, &mut sd);
+            if r != ERROR_SUCCESS || owner.is_invalid() {
+                return false;
+            }
+            let ok = IsWellKnownSid(owner, WinLocalSystemSid).as_bool() || IsWellKnownSid(owner, WinBuiltinAdministratorsSid).as_bool();
+            let _ = LocalFree(Some(HLOCAL(sd.0)));
+            ok
+        }
+    }
+
     pub fn console_user() -> Option<String> {
         let id = unsafe { WTSGetActiveConsoleSessionId() };
         if id == u32::MAX {
@@ -73,6 +92,9 @@ mod imp {
     }
     pub fn console_user() -> Option<String> {
         None
+    }
+    pub fn trusted_owner(_path: &std::path::Path) -> bool {
+        true
     }
 }
 

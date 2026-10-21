@@ -43,8 +43,6 @@ pub struct Inner {
     pub items: Vec<Item>,
     pub cache: Cache,
     pub dirty: bool,
-    /// Hizmetin bildirdiği genel anahtar (hizmet modunda, yapılandırmada anahtar yoksa)
-    pub service_key: Option<String>,
     /// Hizmetin bildirdiği bilgiler (cihaz kimliği, sunucu, bekleyen mesaj)
     pub service_info: Value,
     // gösterim durumu (display.rs)
@@ -110,14 +108,14 @@ fn cache_path() -> std::path::PathBuf {
 
 impl Agent {
     pub fn load(managed: bool) -> Agent {
-        let cfg = config::load();
+        // hizmetin başlattığı arayüz geliştirme ortam değişkenine (ERTEPANO_CONFIG) bakmaz
+        let cfg = config::load(!managed);
         let cache: Cache = std::fs::read_to_string(cache_path()).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         let inner = Inner {
             status: Status::Starting,
             items: vec![],
             cache,
             dirty: false,
-            service_key: None,
             service_info: Value::Null,
             views: HashMap::new(),
             open: HashMap::new(),
@@ -149,14 +147,15 @@ impl Agent {
         }
     }
 
-    /// İmza doğrulama anahtarı: yapılandırmada sabitlenmiş → hizmetin bildirdiği → (Direct) istemcinin TOFU anahtarı.
-    pub fn key(&self, g: &Inner) -> Option<String> {
+    /// İmza doğrulama anahtarı: bu bilgisayarın yapılandırmasında sabitlenmiş anahtar; hizmetsiz (Direct) modda ayrıca
+    /// istemcinin HTTPS üzerinden sabitlediği TOFU anahtarı. Hizmet borusundan gelen anahtar ASLA kullanılmaz.
+    pub fn key(&self, _g: &Inner) -> Option<String> {
         if let Some(k) = self.cfg.as_ref().map(|c| c.public_key.trim().to_string()).filter(|k| !k.is_empty()) {
             return Some(k);
         }
         match self.backend.get() {
             Some(Backend::Direct(c)) => c.key(),
-            _ => g.service_key.clone(),
+            _ => None,
         }
     }
 

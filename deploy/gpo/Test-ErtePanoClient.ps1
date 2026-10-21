@@ -51,14 +51,21 @@ $msi = Get-ItemProperty 'HKLM:\SOFTWARE\ErtePano' -ErrorAction SilentlyContinue
 $file = Join-Path $env:ProgramData 'ErtePano\agent.json'
 $server = $null
 if (Test-Path $file) {
-  try { $j = Get-Content $file -Raw | ConvertFrom-Json; $server = $j.serverUrl; Ok "agent.json: $file" } catch { Bad "agent.json okunamadı: $_" }
+  # ajan, sahibi SYSTEM/Yöneticiler olmayan agent.json'ı güvenlik gereği yok sayar
+  $owner = (Get-Acl $file).Owner
+  $sid = try { (New-Object System.Security.Principal.NTAccount $owner).Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { '' }
+  if ($sid -in @('S-1-5-18', 'S-1-5-32-544')) {
+    try { $j = Get-Content $file -Raw | ConvertFrom-Json; $server = $j.serverUrl; Ok "agent.json: $file (sahip $owner)" } catch { Bad "agent.json okunamadı: $_" }
+  } else {
+    Bad "agent.json sahibi güvenilir değil ($owner) — ajan bu dosyayı yok sayar. Düzeltme: icacls `"$file`" /setowner *S-1-5-32-544"
+  }
 }
 if (-not $server -and $msi -and $msi.ServerUrl) { $server = $msi.ServerUrl; Ok 'Yapılandırma: MSI özellikleri (HKLM\SOFTWARE\ErtePano)' }
 if ($pol) {
   if ($pol.ServerUrl) { $server = $pol.ServerUrl }
   Ok ("GPO ilkesi: " + ((@('ServerUrl', 'EnrollKey', 'PublicKey', 'Location', 'Department') | Where-Object { $pol.$_ }) -join ', '))
-  if (-not $pol.PublicKey -and -not ($j -and $j.publicKey) -and -not ($msi -and $msi.PublicKey)) { Warn 'Genel anahtar sabitlenmemiş (PublicKey) — üretimde ayarlayın' }
 }
+if (-not ($pol -and $pol.PublicKey) -and -not ($j -and $j.publicKey) -and -not ($msi -and $msi.PublicKey)) { Bad 'Genel anahtar (PublicKey) yapılandırılmamış — arayüz hiçbir duyuru göstermez' }
 if ($server) { Ok "Sunucu: $server" } else { Bad 'Sunucu adresi hiçbir kaynakta yok (GPO ErtePano.admx → Sunucu adresi)' }
 
 # 4. Sunucuya erişim

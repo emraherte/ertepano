@@ -183,7 +183,7 @@ fn plan(g: &mut Inner, dnd: bool, mons: &[MonitorRaw]) -> Vec<Want> {
                         rect: PhysRect { x: work.x + work.w - w - m, y: work.y + work.h - h - m, w, h },
                         scale: s,
                         kind: Kind::Toast,
-                        view: json!({ "item": a, "queued": queued }),
+                        view: json!({ "item": with_image(&a), "queued": queued }),
                         item_id: a.id.clone(),
                     });
                 }
@@ -210,7 +210,7 @@ fn plan(g: &mut Inner, dnd: bool, mons: &[MonitorRaw]) -> Vec<Want> {
                 rect,
                 scale: s,
                 kind: Kind::Badge,
-                view: json!({ "item": a, "opacity": opacity }),
+                view: json!({ "item": with_image(a), "opacity": opacity }),
                 item_id: a.id.clone(),
             });
         }
@@ -417,4 +417,12 @@ pub fn open_aux(app: &AppHandle, which: &str) {
             log(&format!("{which} açılamadı: {e}"));
         }
     });
+}
+
+/// Görsel adresini, arayüzün indirdiği data: URL ile değiştir (hazır değilse görselsiz gösterilir; hazır olunca
+/// görünüm değişir ve pencere güncellenir). Sunucu dışı adresler hiç yüklenmez (bkz. images.rs).
+fn with_image(a: &Announcement) -> Announcement {
+    let mut a = a.clone();
+    a.image_url = a.image_url.as_deref().and_then(crate::images::resolve);
+    a
 }
