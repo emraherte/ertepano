@@ -77,6 +77,19 @@ pub fn pipe_client_exe(pipe: &impl AsRawHandle) -> Option<PathBuf> {
     process_exe(pid)
 }
 
+/// Borunun öbür ucundaki sürecin Windows oturumu.
+pub fn pipe_client_session(pipe: &impl AsRawHandle) -> Option<u32> {
+    let mut pid = 0u32;
+    unsafe { GetNamedPipeClientProcessId(HANDLE(pipe.as_raw_handle()), &mut pid).ok()? };
+    session_of(pid)
+}
+
+/// Fiziksel konsoldaki (ekran başındaki) oturum; kimse yoksa None.
+pub fn console_session() -> Option<u32> {
+    let s = unsafe { windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId() };
+    (s != u32::MAX && s != 0).then_some(s)
+}
+
 pub fn session_of(pid: u32) -> Option<u32> {
     let mut sid = 0u32;
     unsafe { ProcessIdToSessionId(pid, &mut sid).ok()? };

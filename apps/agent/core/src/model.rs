@@ -71,3 +71,22 @@ impl Announcement {
         true
     }
 }
+
+/// Uzaktan destek isteği (docs/PROTOKOL.md §7.1) — sunucu imzalı.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct SupportRequest {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub session_id: String,
+    pub technician: String,
+    pub technician_user: String,
+    pub reason: String,
+    /// view | control
+    pub mode: String,
+    /// Görüntü bağlantısı için tek kullanımlık jeton (hex64) — arayüz sayfalarına asla verilmez
+    pub relay_token: String,
+    pub max_minutes: u32,
+    pub issued_at: Option<String>,
+    pub expires_at: Option<String>,
+}
