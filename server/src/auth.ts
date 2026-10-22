@@ -59,32 +59,19 @@ interface UserRow {
 
 // ---- Güvenlik ayarları (Sistem sayfası) ------------------------------------------------------
 
-export interface RemoteSupportPolicy {
-  enabled: boolean;
-  /** Teknisyenin kendi hesabında 2FA açık olmalı */
-  requireMfa: boolean;
-  /** Fare/klavye kontrolü istenebilir mi (kapalıysa yalnız görüntüleme) */
-  allowControl: boolean;
-  maxMinutes: number;
-}
-
 export interface SecuritySettings {
   /** Bu rollerde 2FA zorunlu */
   mfaRequiredRoles: Role[];
-  remoteSupport: RemoteSupportPolicy;
 }
-
-const DEFAULT_SUPPORT: RemoteSupportPolicy = { enabled: true, requireMfa: true, allowControl: true, maxMinutes: 60 };
 
 export function getSecurity(): SecuritySettings {
   try {
     const v = JSON.parse(getSetting('security') ?? '{}') as Partial<SecuritySettings>;
     return {
       mfaRequiredRoles: (v.mfaRequiredRoles ?? ['admin']).filter((r): r is Role => (ROLES as readonly string[]).includes(r)),
-      remoteSupport: { ...DEFAULT_SUPPORT, ...(v.remoteSupport ?? {}) },
     };
   } catch {
-    return { mfaRequiredRoles: ['admin'], remoteSupport: DEFAULT_SUPPORT };
+    return { mfaRequiredRoles: ['admin'] };
   }
 }
 
@@ -475,9 +462,6 @@ export async function authRoutes(app: FastifyInstance) {
     const b = z
       .object({
         mfaRequiredRoles: z.array(z.enum(ROLES)).max(ROLES.length),
-        remoteSupport: z
-          .object({ enabled: z.boolean(), requireMfa: z.boolean(), allowControl: z.boolean(), maxMinutes: z.number().int().min(5).max(240) })
-          .optional(),
       })
       .parse(req.body);
     const me = getUser(req.user!.id)!;
@@ -485,7 +469,7 @@ export async function authRoutes(app: FastifyInstance) {
     if (b.mfaRequiredRoles.includes(me.role) && !me.mfa_enabled) {
       return reply.code(400).send({ error: 'Kendi rolünüz için zorunlu kılmadan önce Hesabım sayfasından 2FA kurun' });
     }
-    setSecurity({ mfaRequiredRoles: [...new Set(b.mfaRequiredRoles)], remoteSupport: b.remoteSupport ?? getSecurity().remoteSupport });
+    setSecurity({ mfaRequiredRoles: [...new Set(b.mfaRequiredRoles)] });
     audit(req.user!.username, 'security_settings_updated', 'settings', null, b, req.ip);
     return getSecurity();
   });

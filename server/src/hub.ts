@@ -91,21 +91,6 @@ export function revokeAnnouncement(id: string) {
   for (const c of conns.values()) send(c, { t: 'revoke', id });
 }
 
-/** Tek bir bağlı cihaza denetim mesajı (ör. uzaktan destek isteği). Bağlı değilse false. */
-export function sendToDevice(deviceId: string, msg: ServerToAgent): boolean {
-  const c = conns.get(deviceId);
-  if (!c || c.socket.readyState !== c.socket.OPEN) return false;
-  send(c, msg);
-  return true;
-}
-
-type SupportResponse = Extract<AgentToServer, { t: 'support_response' }>;
-let supportResponseHandler: ((deviceId: string, msg: SupportResponse) => void) | null = null;
-/** support.ts kaydeder (döngüsel içe aktarmayı önlemek için) */
-export const setSupportResponseHandler = (fn: (deviceId: string, msg: SupportResponse) => void) => {
-  supportResponseHandler = fn;
-};
-
 /** Cihaz engellendi/silindi: bağlantısını kes. */
 export function disconnectDevice(deviceId: string) {
   const c = conns.get(deviceId);
@@ -225,14 +210,6 @@ const agentMsg = z.discriminatedUnion('t', [
   z.object({ t: z.literal('ack'), id: z.string(), action: z.enum(['seen', 'read', 'acked', 'dismissed', 'answered']), answer: z.string().optional() }),
   z.object({ t: z.literal('safety'), emergencyId: z.string(), status: z.enum(['safe', 'help']), note: z.string().optional() }),
   z.object({ t: z.literal('report'), kind: z.enum(['it_help', 'near_miss']), text: z.string().max(4000), anonymous: z.boolean().optional() }),
-  z.object({
-    t: z.literal('support_response'),
-    sessionId: z.string().max(64),
-    accepted: z.boolean(),
-    allowControl: z.boolean().optional(),
-    user: z.string().max(128).optional(),
-    reason: z.string().max(64).optional(),
-  }),
   z.object({ t: z.literal('pong') }),
 ]);
 
@@ -328,7 +305,7 @@ export async function agentRoutes(app: FastifyInstance) {
     }, 5000);
 
     socket.on('message', (raw) => {
-      // denetim kanalında büyük mesaj yok; ekran görüntüsü ayrı /ws/support/agent kanalından gelir
+      // ajan mesajları küçüktür (en büyüğü telemetri)
       if ((raw as Buffer).length > 64 * 1024) return;
       let msg: AgentToServer;
       try {
@@ -373,9 +350,6 @@ export async function agentRoutes(app: FastifyInstance) {
           break;
         case 'report':
           onReport(conn, msg.kind, msg.text, !!msg.anonymous);
-          break;
-        case 'support_response':
-          supportResponseHandler?.(conn.deviceId, msg);
           break;
         default:
           break;

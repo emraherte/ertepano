@@ -1,7 +1,6 @@
 //! Hizmet ↔ arayüz yerel borusu (\\.\pipe\ErtePano.Agent). Satır başına bir JSON.
 //!   hizmet → arayüz: {t:"state",…} ve {t:"sync",items:[SignedItem]} (her değişiklikte tam liste)
-//!   hizmet → arayüz: {t:"support_request",req} / {t:"support_end",sessionId} — yalnızca hedef oturumun arayüzüne
-//!   arayüz → hizmet: {t:"out",msg:{t:"ack"|"safety"|"report"|"support_response",…}}
+//!   arayüz → hizmet: {t:"out",msg:{t:"ack"|"safety"|"report",…}}
 //! Güvenlik: yalnızca bu bilgisayardaki oturumlar (uzak istemci reddi), DACL ile yalnız SYSTEM/Yöneticiler/etkileşimli
 //! kullanıcılar; bağlanan sürecin exe'si hizmetle aynı klasördeki ertepano_agent.exe olmalı.
 use crate::hub::Hub;
@@ -65,19 +64,7 @@ async fn handle(server: NamedPipeServer, hub: Arc<Hub>, allowed_exe: PathBuf) {
         ertepano_core::log::log(&format!("boru: izin verilmeyen istemci reddedildi ({:?})", client));
         return;
     }
-    let session = crate::winsys::pipe_client_session(&server);
-    if let Some(s) = session {
-        hub.ui_connected(s);
-    }
-    serve_ui(server, &hub, session).await;
-    if let Some(s) = session {
-        hub.ui_disconnected(s);
-    }
-}
-
-async fn serve_ui(server: NamedPipeServer, hub: &Arc<Hub>, session: Option<u32>) {
     let mut changes = hub.subscribe();
-    let mut support = hub.support_rx();
     let (rd, mut wr) = tokio::io::split(server);
     let mut lines = BufReader::new(rd).lines();
     let send = |v: Value| format!("{v}\n");
@@ -94,21 +81,10 @@ async fn serve_ui(server: NamedPipeServer, hub: &Arc<Hub>, session: Option<u32>)
                 let Ok(v) = serde_json::from_str::<Value>(&line) else { continue };
                 if v.get("t").and_then(|t| t.as_str()) == Some("out") {
                     if let Some(msg) = v.get("msg") {
-                        if !hub.forward(msg, session) {
+                        if !hub.forward(msg) {
                             ertepano_core::log::log("boru: bilinmeyen mesaj türü yok sayıldı");
                         }
                     }
-                }
-            }
-            m = support.recv() => {
-                match m {
-                    Ok((target, msg)) if Some(target) == session => {
-                        if wr.write_all(send(msg).as_bytes()).await.is_err() {
-                            return;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
-                    _ => {}
                 }
             }
             changed = changes.changed() => {

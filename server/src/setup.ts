@@ -129,12 +129,6 @@ export function securityChecks(): Check[] {
         ? { id: 'license', label: 'Lisans', status: 'info', detail: `Deneme sürümü, ${lic.daysLeft} gün kaldı.`, action: '/lisans' }
         : { id: 'license', label: 'Lisans', status: 'warn', detail: 'Lisans süresi dolmuş ya da geçersiz.', action: '/lisans' },
   );
-
-  checks.push(
-    sec.remoteSupport.enabled && !sec.remoteSupport.requireMfa
-      ? { id: 'support', label: 'Uzaktan destek', status: 'warn', detail: 'Teknisyenler 2FA olmadan bağlanabiliyor.', action: '/sistem' }
-      : { id: 'support', label: 'Uzaktan destek', status: 'ok', detail: sec.remoteSupport.enabled ? 'Çalışan onayı + teknisyen 2FA zorunlu, kayıt tutulmuyor.' : 'Kapalı.' },
-  );
   return checks;
 }
 

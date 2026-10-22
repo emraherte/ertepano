@@ -11,7 +11,7 @@ güvenlik ve KVKK ekibinin de gönlü rahat olacak şekilde canlıya almak.
 |---|---|
 | Veri nerede durur? | Yalnızca kurumun kendi sunucusunda. **İnternete hiçbir veri gönderilmez**; lisans çevrimdışı doğrulanır. |
 | Çalışan bilgisayarlarından ne toplanır? | Bilgisayar adı, IP/MAC, oturumdaki kullanıcı adı, işletim sistemi, CPU/RAM/disk, açık kalma süresi. **Ekran görüntüsü, pencere başlığı, klavye/fare, tarayıcı geçmişi, dosya, kamera/mikrofon toplanmaz** — kodda yoktur. |
-| Uzaktan destek gizlice bağlanabilir mi? | **Hayır.** Her bağlantı çalışanın ekranında açık onayla başlar, neden yazılıdır; bağlantı boyunca kırmızı çerçeve ve "Bitir" düğmesi vardır. Gözetimsiz erişim yoktur, görüntü **kaydedilmez**. Teknisyenin 2FA'sı zorunludur. Kim, ne zaman, neden, ne kadar süre bağlandı denetim kaydındadır. |
+| Çalışanın ekranı izlenebilir mi? | **Hayır.** Ajanda ekran görüntüsü alma, uzaktan bağlanma ya da klavye/fare izleme yoktur. |
 | Panel girişi ne kadar güvenli? | Active Directory ile tek oturum (LDAPS), yöneticilerde ve acil durum yetkililerinde **iki faktörlü doğrulama zorunlu**, kaba kuvvet sınırları, 2 saat hareketsizlikte oturum düşer. |
 | Sahte "yangın" uyarısı gönderilebilir mi? | Ajanlar yalnızca sunucunun Ed25519 anahtarıyla imzalı uyarıyı gösterir; anahtar GPO ile sabitlenir. Acil durumu yalnızca İSG/yönetici başlatır, basılı tutarak onay ister, her biri kayıt altındadır. |
 | Kim ne yaptı izlenebilir mi? | Her işlem **silinemez, zincirli** denetim kaydına yazılır; panelden bütünlük doğrulanabilir. |
@@ -66,7 +66,7 @@ güvenlik ve KVKK ekibinin de gönlü rahat olacak şekilde canlıya almak.
 3. **Kurulum sihirbazı (20 dk)** — `https://pano.sirket.local/kurulum`
    - `admin` + `ILK-YONETICI-PAROLASI.txt` içindeki parola → parolayı değiştirin → telefonla 2FA kurun
    - Kurum adı
-   - Güvenlik: 2FA'nın zorunlu olduğu roller (öneri: Yönetici, İSG, IT), uzaktan destek politikası
+   - Güvenlik: 2FA'nın zorunlu olduğu roller (öneri: Yönetici, İSG, IT)
    - Active Directory: 1. adımdaki değerler → **Bağlantıyı dene** → **Kaydet**
    - Lisans dosyası (.lic) — yoksa 30 gün deneme
    - Ajan: kayıt anahtarı oluştur → değerleri kopyalayın
@@ -80,7 +80,6 @@ güvenlik ve KVKK ekibinin de gönlü rahat olacak şekilde canlıya almak.
 5. **Kabul testi (15 dk)**
    - Pilot bilgisayara test duyurusu (yalnızca o cihaz) → ekranda göründü, "görüldü" panelde
    - Tatbikat modunda acil durum → yoklama sayıldı → sessizce bitir
-   - Uzaktan destek → çalışan reddet / onayla / Bitir denemeleri
    - Sistem & güvenlik → kontrol listesi yeşil; Denetim kaydı → *Bütünlüğü doğrula*
 
 ---
@@ -90,7 +89,7 @@ güvenlik ve KVKK ekibinin de gönlü rahat olacak şekilde canlıya almak.
 - **Aydınlatma metnine eklenecek madde (örnek):** "Bilgi güvenliği ve BT envanteri yönetimi amacıyla, şirket bilgisayarlarınızın
   adı, ağ adresi, oturum açan kullanıcı adı, işletim sistemi ve donanım kullanım bilgileri (işlemci, bellek, disk) meşru menfaat
   kapsamında işlenmekte ve 30 gün saklanmaktadır. Duyuru okundu/onay bilgileri 1 yıl, İSG zorunlu onay ve acil durum yoklama
-  kayıtları 2 yıl saklanır. Uzaktan teknik destek yalnızca açık onayınızla yapılır, ekran görüntüsü kaydedilmez."
+  kayıtları 2 yıl saklanır. Ekran görüntüsü alınmaz."
 - **VERBİS / veri işleme envanteri:** yukarıdaki kategoriler, saklama süreleri (Sistem → `RETENTION_*`), alıcı: kurum BT ve İSG birimleri.
 - **Doğum günü kutlamaları:** yalnızca gün/ay; çalışan istemezse Takvim → kutlama kapatılır.
 - **Ramak kala:** anonim gönderilebilir; anonim kayıtta kişi ve cihaz saklanmaz.

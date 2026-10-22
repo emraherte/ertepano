@@ -4,10 +4,9 @@ use ertepano_core::client::{Client, Host, Status};
 use ertepano_core::model::SignedItem;
 use ertepano_core::{lock, VERSION};
 use serde_json::{json, Value};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
-use tokio::sync::{broadcast, watch};
+use tokio::sync::watch;
 
 struct Entry {
     id: String,
@@ -22,18 +21,11 @@ pub struct Hub {
     sys: Mutex<sysinfo::System>,
     /// Her değişiklikte artan sürüm — boru bağlantıları buna abone
     tx: watch::Sender<u64>,
-    /// Uzaktan destek mesajları: (hedef Windows oturumu, mesaj) — yalnızca o oturumun arayüzü alır
-    support_tx: broadcast::Sender<(u32, Value)>,
-    /// Boruya bağlı arayüzler: Windows oturumu → bağlantı sayısı
-    ui_sessions: Mutex<HashMap<u32, usize>>,
-    /// Süren destek oturumu: (sessionId, hedef Windows oturumu)
-    support: Mutex<Option<(String, u32)>>,
 }
 
 impl Hub {
     pub fn new(dir: PathBuf) -> Arc<Hub> {
         let (tx, _) = watch::channel(0);
-        let (support_tx, _) = broadcast::channel(16);
         Arc::new(Hub {
             dir,
             status: Mutex::new(Status::Starting),
@@ -41,46 +33,7 @@ impl Hub {
             client: OnceLock::new(),
             sys: Mutex::new(ertepano_core::telemetry::new_system()),
             tx,
-            support_tx,
-            ui_sessions: Mutex::new(HashMap::new()),
-            support: Mutex::new(None),
         })
-    }
-
-    pub fn support_rx(&self) -> broadcast::Receiver<(u32, Value)> {
-        self.support_tx.subscribe()
-    }
-
-    pub fn ui_connected(&self, session: u32) {
-        *lock(&self.ui_sessions).entry(session).or_default() += 1;
-    }
-
-    pub fn ui_disconnected(&self, session: u32) {
-        let mut m = lock(&self.ui_sessions);
-        if let Some(n) = m.get_mut(&session) {
-            *n -= 1;
-            if *n == 0 {
-                m.remove(&session);
-            }
-        }
-    }
-
-    /// İsteği gösterecek oturum: ekran başındaki (konsol) kullanıcı; konsolda arayüz yoksa ve tek oturum bağlıysa o.
-    fn support_target(&self) -> Option<u32> {
-        let m = lock(&self.ui_sessions);
-        if let Some(c) = crate::winsys::console_session().filter(|c| m.contains_key(c)) {
-            return Some(c);
-        }
-        if m.len() == 1 {
-            return m.keys().next().copied();
-        }
-        None
-    }
-
-    fn support_deny(&self, session_id: &str, reason: &str) {
-        if let Some(c) = self.client.get() {
-            c.queue(json!({ "t": "support_response", "sessionId": session_id, "accepted": false, "reason": reason }).to_string());
-        }
     }
 
     pub fn subscribe(&self) -> watch::Receiver<u64> {
@@ -157,21 +110,9 @@ impl Hub {
     }
 
     /// Arayüzden gelen ajan → sunucu mesajı: yalnızca bilinen türler sunucuya iletilir.
-    /// Destek yanıtı yalnızca isteğin gönderildiği oturumdaki arayüzden ve yalnızca süren oturum için kabul edilir.
-    pub fn forward(&self, msg: &Value, from_session: Option<u32>) -> bool {
+    pub fn forward(&self, msg: &Value) -> bool {
         let t = msg.get("t").and_then(|t| t.as_str()).unwrap_or("");
-        if t == "support_response" {
-            let sid = msg.get("sessionId").and_then(|s| s.as_str()).unwrap_or("");
-            let mut cur = lock(&self.support);
-            let ok = cur.as_ref().is_some_and(|(id, target)| id == sid && from_session == Some(*target));
-            if !ok {
-                ertepano_core::log::log("uzaktan destek: beklenmeyen yanıt yok sayıldı");
-                return true;
-            }
-            if msg.get("accepted").and_then(|a| a.as_bool()) != Some(true) {
-                *cur = None;
-            }
-        } else if !matches!(t, "ack" | "safety" | "report") {
+        if !matches!(t, "ack" | "safety" | "report") {
             return false;
         }
         let Some(c) = self.client.get() else { return false };
@@ -215,43 +156,5 @@ impl Host for Hub {
     fn telemetry(&self) -> Value {
         let mut sys = lock(&self.sys);
         ertepano_core::telemetry::collect(&mut sys)
-    }
-
-    /// İmzayı burada da doğrula; isteği yalnızca ekran başındaki kullanıcının arayüzüne ilet (arayüz yeniden doğrular).
-    fn support(&self, msg: Value) {
-        let log = ertepano_core::log::log;
-        match msg.get("t").and_then(|t| t.as_str()).unwrap_or("") {
-            "support_request" => {
-                let Some(signed) = msg.get("req").cloned().and_then(|r| serde_json::from_value::<SignedItem>(r).ok()) else { return };
-                let Some(key) = self.key() else { return };
-                let req = match ertepano_core::verify::verify_support(&key, &signed) {
-                    Ok(r) => r,
-                    Err(e) => return log(&format!("uzaktan destek isteği reddedildi: {e}")),
-                };
-                let busy = lock(&self.support).as_ref().is_some_and(|(id, _)| *id != req.session_id);
-                if busy {
-                    return self.support_deny(&req.session_id, "busy");
-                }
-                let Some(target) = self.support_target() else {
-                    log(&format!("uzaktan destek isteği ({}): oturum açmış kullanıcı yok", req.technician));
-                    return self.support_deny(&req.session_id, "no_user");
-                };
-                log(&format!("uzaktan destek isteği: {} → oturum {target} (neden: {})", req.technician, req.reason));
-                *lock(&self.support) = Some((req.session_id.clone(), target));
-                let _ = self.support_tx.send((target, json!({ "t": "support_request", "req": signed })));
-            }
-            "support_end" => {
-                let sid = msg.get("sessionId").and_then(|s| s.as_str()).unwrap_or("");
-                let cur = {
-                    let mut g = lock(&self.support);
-                    if g.as_ref().is_some_and(|(id, _)| id == sid) { g.take() } else { None }
-                };
-                if let Some((id, target)) = cur {
-                    log("uzaktan destek oturumu sunucu tarafından bitirildi");
-                    let _ = self.support_tx.send((target, json!({ "t": "support_end", "sessionId": id })));
-                }
-            }
-            _ => {}
-        }
     }
 }

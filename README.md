@@ -97,17 +97,9 @@ Microsoft / Google Authenticator ile TOTP (RFC 6238). Parola doğruysa 5 dakikal
 
   Müşteri: Panel → **Lisans ve modüller** → dosyayı yükle. Modüller yeniden kurulum gerekmeden anında açılır.
 
-## Uzaktan destek (çalışan onaylı, KVKK uyumlu)
-
-IT modülünde Cihazlar → cihaz → **Uzaktan destek**. Teknisyen neden yazar; istek sunucu anahtarıyla imzalanıp ajana gider ve
-**çalışanın ekranında onay penceresi** açılır (yalnızca görüntüleme / kontrol). Onaylanırsa ekran tek kullanımlık jetonla sunucu
-üzerinden aktarılır (**kaydedilmez**), çalışan kırmızı çerçeveyi görür ve istediği an kontrolü geri alır ya da bitirir.
-Gözetimsiz erişim yoktur. Teknisyende 2FA zorunlu (politika), en uzun süre sınırlı, her oturum denetim kaydında ve
-**Uzaktan destek** geçmişinde (kim, hangi cihaz, neden, kim onayladı, süre). Politika: Sistem & güvenlik.
-
 ## Kurulum sihirbazı, kontrol listesi, yedek
 
-İlk girişte yönetici `/kurulum` sihirbazına yönlenir: kurum adı → 2FA ve uzaktan destek politikası → Active Directory → lisans →
+İlk girişte yönetici `/kurulum` sihirbazına yönlenir: kurum adı → 2FA politikası → Active Directory → lisans →
 ajan kayıt anahtarı → **güvenlik kontrol listesi** (ilk parola, 2FA, demo hesaplar, HTTPS, veri klasörü izinleri, yedek...).
 Sunucu her gün veritabanı + anahtarları `data/backups`'a yedekler (son 14). Windows Server kurulumu tek betik:
 `deploy/server/Install-ErtePanoServer.ps1 -PublicUrl https://pano.sirket.local -PfxPath pano.pfx` (NETWORK SERVICE, doğrudan HTTPS).

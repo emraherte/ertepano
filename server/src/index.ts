@@ -12,7 +12,6 @@ import { authRoutes } from './auth.js';
 import { bootstrap } from './bootstrap.js';
 import { agentRoutes } from './hub.js';
 import { adminRoutes } from './routes/admin.js';
-import { supportRoutes } from './support.js';
 import { setupRoutes, startBackups } from './setup.js';
 import { announcementRoutes } from './routes/announcements.js';
 import { deviceRoutes } from './routes/devices.js';
@@ -46,8 +45,8 @@ registerHardening(app);
 
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
-// uzaktan destek ekran kareleri (JPEG) için 2 MB; ajan denetim kanalı kendi içinde 64 KB ile sınırlı
-await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
+// ajan denetim kanalı küçük JSON mesajları taşır
+await app.register(websocket, { options: { maxPayload: 256 * 1024 } });
 
 await app.register(authRoutes);
 await app.register(agentRoutes);
@@ -55,7 +54,6 @@ await app.register(announcementRoutes);
 await app.register(emergencyRoutes);
 await app.register(deviceRoutes);
 await app.register(adminRoutes);
-await app.register(supportRoutes);
 await app.register(setupRoutes);
 
 app.get('/api/health', async () => ({ ok: true, publicKey: publicKeyBase64 }));

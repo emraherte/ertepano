@@ -24,7 +24,6 @@ import {
   BadgeCheck,
   Lock,
   Sparkles,
-  ScreenShare,
   Rocket,
   Users as UsersIcon,
   X,
@@ -51,7 +50,6 @@ import { Account } from './pages/Account';
 import { SystemSettings } from './pages/SystemSettings';
 import { Kiosk } from './pages/Kiosk';
 import { LicensePage } from './pages/License';
-import { SupportHistory, SupportSession } from './pages/RemoteSupport';
 import { SetupWizard } from './pages/SetupWizard';
 import { LicenseProvider, ModuleLocked, useLicense } from './components/license';
 
@@ -135,7 +133,6 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
       items: [
         { to: '/bildirimler', label: 'Çalışan bildirimleri', icon: Inbox, roles: ['it', 'isg'], count: openReports, modules: ['it', 'isg'] },
         { to: '/cihazlar', label: 'Cihazlar', icon: Monitor, roles: ['it'], count: dash.data?.devices.pending },
-        { to: '/destek', label: 'Uzaktan destek', icon: ScreenShare, roles: ['it'], modules: ['it'] },
         { to: '/takvim', label: 'Takvim & kutlamalar', icon: CalendarHeart, roles: ['ik'] },
       ],
     },
@@ -361,8 +358,6 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
                 <Route path="/acil" element={any(['isg', 'it']) ? <Emergency canAct={EMERGENCY_ROLES.includes(user.role)} onChange={em.reload} /> : <ModuleLocked modules={['isg']} />} />
                 {can(['it', 'isg']) && <Route path="/bildirimler" element={any(['it', 'isg']) ? <Reports /> : <ModuleLocked modules={user.role === 'isg' ? ['isg'] : ['it']} />} />}
                 {can(['it']) && <Route path="/cihazlar" element={<Devices />} />}
-                {can(['it']) && <Route path="/destek" element={any(['it']) ? <SupportHistory /> : <ModuleLocked modules={['it']} />} />}
-                {can(['it']) && <Route path="/destek/:id" element={any(['it']) ? <SupportSession /> : <ModuleLocked modules={['it']} />} />}
                 {can(['ik']) && <Route path="/takvim" element={<CalendarPage />} />}
                 {can(['it']) && <Route path="/ajan-kurulumu" element={<AgentSetup />} />}
                 {can(['admin']) && <Route path="/kullanicilar" element={<Users />} />}

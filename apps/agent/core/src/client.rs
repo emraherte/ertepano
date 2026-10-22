@@ -90,8 +90,6 @@ pub trait Host: Send + Sync + 'static {
     fn revoke(&self, id: &str);
     /// Telemetri verisi (engelleyici olabilir; ayrı iş parçacığında çağrılır)
     fn telemetry(&self) -> Value;
-    /// Uzaktan destek: `support_request` / `support_end` (docs/PROTOKOL.md §7)
-    fn support(&self, _msg: Value) {}
 }
 
 struct State {
@@ -125,8 +123,7 @@ fn jitter_ms(max: u64) -> u64 {
     n % max.max(1)
 }
 
-/// `https://x` → `wss://x{path}` (görüntü bağlantısı da aynı sunucuya gider).
-pub fn ws_url(server: &str, path: &str) -> String {
+fn ws_url(server: &str) -> String {
     let base = if let Some(rest) = server.strip_prefix("https://") {
         format!("wss://{rest}")
     } else if let Some(rest) = server.strip_prefix("http://") {
@@ -134,7 +131,7 @@ pub fn ws_url(server: &str, path: &str) -> String {
     } else {
         format!("ws://{server}")
     };
-    format!("{base}{path}")
+    format!("{base}/ws/agent")
 }
 
 fn http() -> reqwest::Client {
@@ -338,7 +335,7 @@ impl Client {
         let host: &dyn Host = host_arc.as_ref();
         let dev = self.ensure_device(host).await?;
         self.set_status(host, Status::Connecting);
-        let url = ws_url(&self.cfg.server_url, "/ws/agent");
+        let url = ws_url(&self.cfg.server_url);
         let (ws, _) = tokio::time::timeout(Duration::from_secs(15), connect_async(url.as_str()))
             .await
             .map_err(|_| SessErr::Other("bağlantı zaman aşımı".into()))?
@@ -402,7 +399,6 @@ impl Client {
                                         host.revoke(id);
                                     }
                                 }
-                                "support_request" | "support_end" => host.support(v),
                                 "ping" => {
                                     tx.send(Message::text(json!({ "t": "pong" }).to_string())).await.map_err(other)?;
                                 }

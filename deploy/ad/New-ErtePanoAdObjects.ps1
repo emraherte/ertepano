@@ -35,7 +35,7 @@ if (-not $OuPath) {
 
 $groups = [ordered]@{
   'ErtePano-Yonetici' = 'ErtePano: tüm ayarlar, kullanıcılar, lisans (en az kişi)'
-  'ErtePano-IT'       = 'ErtePano: cihazlar, ajan kurulumu, IT duyuruları, uzaktan destek, siber olay'
+  'ErtePano-IT'       = 'ErtePano: cihazlar, ajan kurulumu, IT duyuruları, siber olay'
   'ErtePano-ISG'      = 'ErtePano: İSG duyuruları, acil durum, tatbikat, ramak kala'
   'ErtePano-IK'       = 'ErtePano: İK duyuruları, anketler, kutlamalar'
   'ErtePano-Izleyici' = 'ErtePano: yalnızca görüntüleme'
