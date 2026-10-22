@@ -58,7 +58,7 @@ Ajan → sunucu:
 { "t": "telemetry", "data": Telemetry }        // bağlanınca hemen, sonra 60 sn'de bir
 { "t": "ack", "id": "announcementId", "action": "seen" | "read" | "acked" | "dismissed" | "answered", "answer": "seçenek metni (anket için)" }
 { "t": "safety", "emergencyId": "...", "status": "safe" | "help", "note": "..." }
-{ "t": "report", "kind": "it_help" | "near_miss", "text": "...", "anonymous": false }
+{ "t": "report", "kind": "it_help", "text": "..." }
 { "t": "pong" }
 ```
 `seen` = ekranda gösterildi; `read` = kart üzerine tıklandı/okundu; `acked` = "Okudum, anladım"; `dismissed` = kapatıldı; `answered` = anket yanıtı.

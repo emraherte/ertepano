@@ -80,7 +80,7 @@ Microsoft / Google Authenticator ile TOTP (RFC 6238). Parola doğruysa 5 dakikal
 |---|---|
 | **Temel** (her lisansta) | Genel duyurular, özel gün rozetleri, kiosk/TV, cihaz kaydı, kullanıcılar, 2FA, LDAP |
 | **İK modülü** | İK duyuruları, anketler, doğum günü / kıdem / hoş geldin kutlamaları |
-| **İSG modülü** | Tam ekran acil durum + canlı yoklama, tatbikat, ramak kala, İSG duyuruları |
+| **İSG modülü** | Tam ekran acil durum + canlı yoklama, tatbikat, İSG duyuruları ve zorunlu okuma |
 | **IT modülü** | Donanım envanteri ve sağlık uyarıları, CSV, IT duyuruları, siber olay uyarısı, IT talepleri |
 
 - Lisans yokken ilk açılıştan itibaren **30 gün tüm modüller açık deneme** (25 cihaz). Süresi dolan lisans 14 gün ek süreyle çalışır,
@@ -97,6 +97,29 @@ Microsoft / Google Authenticator ile TOTP (RFC 6238). Parola doğruysa 5 dakikal
 
   Müşteri: Panel → **Lisans ve modüller** → dosyayı yükle. Modüller yeniden kurulum gerekmeden anında açılır.
 
+## Duyuru onay akışı ve vekalet
+
+Yönetici, kategori başına (İK / İSG / IT / Genel) sıralı onay adımları tanımlar: her adımda onaycılar (kişi ya da rol) ve gereken
+onay sayısı (ör. *İK müdürü* → *Genel müdür*). Bu kategoride “Yayınla” yerine **Onaya gönder** çıkar; son adım onaylanınca duyuru
+yayına girer (planlıysa planlanan saatte). Kurallar:
+- Hazırlayan kendi duyurusunu onaylayamaz; bir kişi aynı turda tek bir adımı onaylar (görevler ayrılığı).
+- Ret gerekçe ister; hazırlayan düzeltip yeniden gönderir (yeni tur). Onaydan sonra içerik değişirse duyuru yayından kalkar ve
+  yeniden onaya gider; yalnızca bitiş zamanı değişikliği onayı bozmaz.
+- **Vekalet:** onaycı, izin/rapor süresince yetkisini başka bir panel kullanıcısına devreder (en fazla 3 ay, devredilemez);
+  vekil onayı denetim kaydına “X adına Y” olarak düşer.
+- Acil durum yayınları ve otomatik kutlamalar onay beklemez (can güvenliği gecikmeye gelmez).
+Panel → **Onaylar**: onayımı bekleyenler, gönderdiklerim, vekalet, onay akışları.
+
+## Personel listesi ve kutlamalar
+
+Takvim → **Personel & kutlamalar**. Üç kaynak, tek liste:
+- **İK sisteminden liste** (Logo, Netsis, Mikro, SAP, Excel): başlıklar Türkçe/İngilizce tanınır (Sicil No, Adı Soyadı ya da Ad + Soyad,
+  Doğum Tarihi, İşe Giriş, Bölüm, Şube, Kullanıcı Adı / E-posta); önce önizleme, sonra uygula. Excel'den kopyala-yapıştır da olur.
+- **Active Directory**: doğum günü vb. AD özniteliğinde tutuluyorsa (ör. `extensionAttribute1`) günde bir kez eşitlenir; ayrılanlar çıkar.
+- **Elle**: bilgisayarı olmayan çalışanlar (üretim, saha) dahil.
+Doğum yılı saklanmaz. Kişinin “kutlama istemiyorum” tercihi ve elle girilen kayıtlar toplu yüklemede korunur. Kutlama yerleri:
+kişinin kendi ekranı, kiosk/TV (“Bugün kutladıklarımız”, lokasyon başına), isteğe bağlı ekip arkadaşları (departman).
+
 ## Kurulum sihirbazı, kontrol listesi, yedek
 
 İlk girişte yönetici `/kurulum` sihirbazına yönlenir: kurum adı → 2FA politikası → Active Directory → lisans →
@@ -106,9 +129,10 @@ Sunucu her gün veritabanı + anahtarları `data/backups`'a yedekler (son 14). W
 
 ## Kim ne yapar?
 
-- **İK:** şablondan duyuru, mini anket, özel günler (Türkiye takvimi hazır), CSV ile doğum günü / kıdem / hoş geldin otomasyonu.
-- **İSG:** basılı-tut onaylı acil durum yayını, **Güvendeyim / Yardım lazım** yoklaması (lokasyon bazlı canlı), tatbikat modu + tutanak,
-  zorunlu okuma onayı (denetim kanıtı), ramak kala kutusu (anonim seçenekli).
+- **İK:** şablondan duyuru, mini anket, özel günler (Türkiye takvimi hazır), doğum günü / kıdem / hoş geldin otomasyonu
+  (personel listesi: İK sisteminden toplu yükleme, Active Directory eşitlemesi ya da elle; bilgisayarı olmayanlar kiosk ekranında kutlanır).
+- **İSG:** basılı-tut onaylı acil durum yayını, **Güvendeyim / Yardım lazım** yoklaması (lokasyon bazlı canlı), tatbikat modu,
+  zorunlu okuma onayı (denetim kanıtı).
 - **IT:** cihaz envanteri ve uyarılar (disk %90+, 14+ gün yeniden başlatılmamış, görünmeyen cihaz), toplu onay/etiket, CSV, bakım
   geri sayımı, siber olay uyarısı, "IT'ye bildir" talepleri (cihaz özeti otomatik), ajan kayıt anahtarları ve hazır `agent.json`.
 - **Herkes:** fabrika/yemekhane TV'leri için anahtarlı `/kiosk` ekranı; acil durumda kırmızıya döner.

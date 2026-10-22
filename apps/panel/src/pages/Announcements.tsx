@@ -10,6 +10,7 @@ import { Badge, Button, CAT, Card, Cat, Checkbox, cn, EmptyState, Input, listIte
 
 const TABS = [
   { value: '', label: 'Tümü' },
+  { value: 'pending', label: 'Onayda' },
   { value: 'active', label: 'Yayında' },
   { value: 'scheduled', label: 'Planlı' },
   { value: 'draft', label: 'Taslak' },

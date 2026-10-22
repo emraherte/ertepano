@@ -19,7 +19,7 @@ interface PanelUser {
 const ROLE_HELP: Record<Role, string> = {
   admin: 'Her şey',
   it: 'Cihazlar, ajan kurulumu, IT duyuruları, siber olay uyarısı, IT talepleri',
-  isg: 'İSG duyuruları, acil durum ve tatbikat, ramak kala bildirimleri',
+  isg: 'İSG duyuruları, acil durum ve tatbikat',
   ik: 'İK duyuruları, anketler, özel günler, kutlamalar',
   viewer: 'Sadece görüntüleme',
 };

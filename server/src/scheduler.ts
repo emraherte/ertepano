@@ -3,6 +3,7 @@ import { db, nowIso } from './db.js';
 import { publish, tickLifecycle } from './lifecycle.js';
 import { uuid } from './security.js';
 import { hasModule } from './license.js';
+import { celebrationSettings, dailyEmployeeSync } from './employees.js';
 
 /** Kurumun saat dilimindeki bugünün tarihi: "2026-10-29". */
 export function localToday(d = new Date()): string {
@@ -83,35 +84,92 @@ export function runDailyAutomation() {
   }
 
   if (!hasModule('ik')) return;
+  celebratePeople(today, md, morning, dayEnd);
+}
+
+interface Person {
+  id: string;
+  username: string | null;
+  full_name: string;
+  birth_md: string | null;
+  start_date: string | null;
+  department: string | null;
+  location: string | null;
+}
+
+/** "Ayşe Nur Demir" → "Ayşe Nur D." (kiosk ve ekip kartında soyadın tamamı gösterilmez) */
+const shortName = (full: string) => {
+  const parts = full.trim().split(/\s+/);
+  return parts.length > 1 ? `${parts.slice(0, -1).join(' ')} ${parts[parts.length - 1][0]}.` : full;
+};
+
+/**
+ * Doğum günü, kıdem yılı, hoş geldin.
+ * - Bilgisayarı olan (kullanıcı adı bilinen) kişiye kendi ekranında sabah kart
+ * - Ekip kartı (ayar açıksa): aynı departmandaki bilgisayarlara
+ * - Kiosk/TV (ayar açıksa): lokasyon başına "Bugün kutladıklarımız" — bilgisayarı olmayanlar da burada görünür
+ */
+function celebratePeople(today: string, md: string, morning: string, dayEnd: string) {
+  const cs = celebrationSettings();
   const people = db
     .prepare('SELECT * FROM employees WHERE celebrate = 1 AND (birth_md = ? OR substr(start_date, 6) = ?)')
-    .all(md, md) as { username: string; full_name: string; birth_md: string | null; start_date: string | null }[];
+    .all(md, md) as Person[];
+  const kioskLines = new Map<string, string[]>();
+  const addKiosk = (p: Person, line: string) => {
+    const k = p.location ?? '';
+    kioskLines.set(k, [...(kioskLines.get(k) ?? []), line]);
+  };
+
   for (const p of people) {
     const first = p.full_name.split(' ')[0];
-    const target = [`user:${p.username}`];
+    const own = p.username ? [`user:${p.username}`] : null;
+    const team = cs.team && p.department ? [`dep:${p.department}`] : null;
     if (p.birth_md === md) {
-      ensureAuto({
-        autoKey: `bd:${p.username}:${today}`, kind: 'toast', category: 'ik', title: `İyi ki doğdun ${first}!`, emoji: '🎂',
-        body: 'Tüm çalışma arkadaşların adına doğum gününü kutlar, sağlık ve mutluluk dolu bir yıl dileriz.',
-        targets: target, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
-      });
-    }
-    if (p.start_date && p.start_date.slice(5) === md) {
-      const years = Number(today.slice(0, 4)) - Number(p.start_date.slice(0, 4));
-      if (years === 0) {
+      if (cs.personal && own) {
         ensureAuto({
-          autoKey: `hg:${p.username}:${today}`, kind: 'toast', category: 'ik', title: `Aramıza hoş geldin ${first}!`, emoji: '👋',
-          body: 'İlk gününde başarılar dileriz. Sorun olursa sağ alttaki ErtePano simgesinden IT\'ye ulaşabilirsin.',
-          targets: target, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
-        });
-      } else if (years > 0) {
-        ensureAuto({
-          autoKey: `kd:${p.username}:${today}`, kind: 'toast', category: 'ik', title: `${years}. yılın kutlu olsun ${first}!`, emoji: '🏅',
-          body: `${years} yıldır bizimlesin. Emeğin ve katkın için teşekkür ederiz.`,
-          targets: target, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
+          autoKey: `bd:${p.id}:${today}`, kind: 'toast', category: 'ik', title: `İyi ki doğdun ${first}!`, emoji: '🎂',
+          body: 'Tüm çalışma arkadaşların adına doğum gününü kutlar, sağlık ve mutluluk dolu bir yıl dileriz.',
+          targets: own, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
         });
       }
+      if (team) {
+        ensureAuto({
+          autoKey: `bdt:${p.id}:${today}`, kind: 'toast', category: 'ik', title: `Bugün ${shortName(p.full_name)} doğum gününü kutluyor`, emoji: '🎉',
+          body: `${p.department} ekibinden ${first}'e iyi dileklerinizi iletmeyi unutmayın.`,
+          targets: team, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
+        });
+      }
+      addKiosk(p, `🎂 ${shortName(p.full_name)}${p.department ? ` · ${p.department}` : ''}`);
     }
+    if (cs.anniversaries && p.start_date && p.start_date.slice(5) === md) {
+      const years = Number(today.slice(0, 4)) - Number(p.start_date.slice(0, 4));
+      if (years === 0 && own && cs.personal) {
+        ensureAuto({
+          autoKey: `hg:${p.id}:${today}`, kind: 'toast', category: 'ik', title: `Aramıza hoş geldin ${first}!`, emoji: '👋',
+          body: "İlk gününde başarılar dileriz. Sorun olursa sağ alttaki ErtePano simgesinden IT'ye ulaşabilirsin.",
+          targets: own, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
+        });
+      } else if (years > 0) {
+        if (own && cs.personal) {
+          ensureAuto({
+            autoKey: `kd:${p.id}:${today}`, kind: 'toast', category: 'ik', title: `${years}. yılın kutlu olsun ${first}!`, emoji: '🏅',
+            body: `${years} yıldır bizimlesin. Emeğin ve katkın için teşekkür ederiz.`,
+            targets: own, showOnKiosk: false, startsAt: morning, endsAt: dayEnd,
+          });
+        }
+        addKiosk(p, `🏅 ${shortName(p.full_name)} · ${years}. yıl`);
+      }
+    }
+  }
+
+  if (!cs.kiosk) return;
+  for (const [loc, lines] of kioskLines) {
+    ensureAuto({
+      autoKey: `kiosk-cel:${loc || '*'}:${today}`, kind: 'banner', category: 'ik', title: 'Bugün kutladıklarımız', emoji: '🎉',
+      body: lines.join('\n'),
+      // yalnızca kiosk/TV ekranları (bilgisayarlara gitmez); lokasyonu bilinmeyenler tüm kiosklarda
+      targets: [loc ? `kiosk-loc:${loc}` : 'kiosk'], showOnKiosk: true, startsAt: morning, endsAt: dayEnd,
+    });
   }
 }
 
@@ -144,6 +202,7 @@ export function startScheduler() {
   const timers = [
     setInterval(safe(tickLifecycle, 'yaşam döngüsü'), 15_000),
     setInterval(safe(runDailyAutomation, 'günlük otomasyon'), 5 * 60_000),
+    setInterval(() => void dailyEmployeeSync(), 60 * 60_000),
     setInterval(safe(purge, 'temizlik'), 60 * 60_000),
   ];
   safe(tickLifecycle, 'yaşam döngüsü')();

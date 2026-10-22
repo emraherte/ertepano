@@ -273,6 +273,7 @@ const STATUS: Record<string, [string, BadgeTone]> = {
   draft: ['Taslak', 'neutral'],
   ended: ['Bitti', 'neutral'],
   pending: ['Onay bekliyor', 'warning'],
+  rejected: ['Reddedildi', 'danger'],
   approved: ['Onaylı', 'success'],
   blocked: ['Engelli', 'danger'],
   open: ['Açık', 'danger'],

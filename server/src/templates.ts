@@ -44,8 +44,6 @@ export const TEMPLATES: Template[] = [
     body: 'Üretim alanına baret, gözlük ve iş ayakkabısı olmadan girmeyiniz.' },
   { id: 'isg-sicak', category: 'isg', kind: 'banner', name: 'Sıcak hava uyarısı', emoji: '🌡️', title: 'Aşırı sıcak uyarısı',
     body: 'Bol su için, saat başı gölgede mola verin. Baş dönmesinde ilk yardım ekibine haber verin.' },
-  { id: 'isg-ramakkala', category: 'isg', kind: 'toast', name: 'Ramak kala farkındalığı', emoji: '⚠️', title: 'Ramak kala gördün mü? Bildir!',
-    body: 'Kazaya dönüşmeden önce bildir: sağ alttaki ErtePano simgesi → "Ramak kala bildir". İstersen anonim.' },
 
   // IT
   { id: 'it-bakim', category: 'it', kind: 'countdown', name: 'Planlı bakım geri sayımı', emoji: '🛠️', title: 'Planlı sistem bakımı',

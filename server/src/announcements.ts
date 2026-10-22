@@ -24,7 +24,8 @@ export interface AnnRow {
   sound: number;
   targets: string;
   show_on_kiosk: number;
-  status: 'draft' | 'scheduled' | 'active' | 'ended';
+  /** pending: onay bekliyor · rejected: onaycı reddetti (düzenlenip yeniden gönderilir) */
+  status: 'draft' | 'pending' | 'rejected' | 'scheduled' | 'active' | 'ended';
   starts_at: string | null;
   ends_at: string | null;
   emergency_id: string | null;
@@ -33,6 +34,11 @@ export interface AnnRow {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  approval_round: number;
+  approval_step: number;
+  submitted_by: string | null;
+  submitted_at: string | null;
+  rejected_reason: string | null;
 }
 
 export interface DeviceRow {
@@ -190,5 +196,9 @@ export function annDto(a: AnnRow) {
     createdBy: a.created_by,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
+    submittedBy: a.submitted_by,
+    submittedAt: a.submitted_at,
+    approvalStep: a.approval_step,
+    rejectedReason: a.rejected_reason,
   };
 }

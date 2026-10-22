@@ -13,8 +13,8 @@
 |---|---|---|---|
 | 1 | Go + PostgreSQL + Redis + MinIO + Docker | **Node 20 + Fastify + SQLite (WAL)**, tek süreç; Postgres/Docker *opsiyonel* | ErtePals'ta zaten bilinen yığın → 2–3 kat hızlı geliştirme. 100–3.000 PC için tek Node süreci ve SQLite fazlasıyla yeter. Kurulum "Node kur + `npm start`". Redis/MinIO ihtiyaç doğana kadar yok. |
 | 2 | 3 gösterim modu | **6 mod**: rozet, kart (toast), üst şerit, tam ekran acil, **anket**, **geri sayım** | İK anketleri ve IT bakım sayaçları ayrı birer UX ister. |
-| 3 | İSG = sadece "acil durum ekranı" | **İSG modülü**: acil yayın + **"Güvendeyim / Yardım lazım" yoklaması**, tatbikat modu, **ramak kala bildirimi**, zorunlu okuma + mini sınav | Acil durumda asıl soru "Kim güvende?" Yoklama, toplanma alanında kâğıt listeyi ortadan kaldırır. |
-| 4 | Ajan tek yönlü (sunucu → ekran) | Ajan **iki yönlü**: tepsi menüsünden **"IT'ye bildir"** (cihaz bilgisi otomatik eklenir) ve **"Ramak kala bildir"** | Çalışan için de değer üretir; ajan "izleyen yazılım" değil "yardım eden yazılım" olarak algılanır. |
+| 3 | İSG = sadece "acil durum ekranı" | **İSG modülü**: acil yayın + **"Güvendeyim / Yardım lazım" yoklaması**, tatbikat modu, zorunlu okuma + mini sınav | Acil durumda asıl soru "Kim güvende?" Yoklama, toplanma alanında kâğıt listeyi ortadan kaldırır. |
+| 4 | Ajan tek yönlü (sunucu → ekran) | Ajan **iki yönlü**: tepsi menüsünden **"IT'ye bildir"** (cihaz bilgisi otomatik eklenir) | Çalışan için de değer üretir; ajan "izleyen yazılım" değil "yardım eden yazılım" olarak algılanır. |
 | 5 | Mavi yaka ekranı yok | **Kiosk / TV modu**: fabrika, yemekhane, girişteki TV'lere tarayıcıdan tam ekran pano | Bilgisayarı olmayan çalışan da İSG ve İK duyurusunu görür. |
 | 6 | Özel günler elle | **Hazır Türkiye takvimi** (resmî/millî günler) + **doğum günü / kıdem / hoş geldin** otomatiği (İK CSV yüklemesi) | İK'nın yılda bir kez yaptığı iş; sonrası kendiliğinden döner. |
 | 7 | Acil yayına "dual approval" | **Önceden onaylı acil şablonları** + basılı tutarak onay (3 sn) + otomatik denetim kaydı | Gerçek yangında ikinci onay beklemek can kaybettirir. Suistimal; rol, kayıt ve hız sınırı ile engellenir. |
@@ -36,7 +36,6 @@
 - **Yoklama (Roll-call)**: tam ekranda iki büyük buton → **Güvendeyim** / **Yardım lazım**. Panelde lokasyon bazlı canlı sayaç: güvende · yardım · yanıt yok. "Yardım lazım" diyen cihazın hostname + kullanıcı + lokasyonu en üstte kırmızı listelenir.
 - **Tatbikat modu**: aynı akış, ekranda büyük "TATBİKAT" etiketi; rapor tatbikat tutanağı olarak dışa aktarılır (süre, yanıt oranı).
 - **Zorunlu okuma**: İSG talimatı → "Okudum, anladım" onayı (kim/ne zaman) → denetim kanıtı. Opsiyonel tek soruluk kontrol sorusu.
-- **Ramak kala kutusu**: çalışanların ajan tepsisinden gönderdiği ramak kala bildirimleri burada toplanır (isteğe bağlı anonim).
 
 ### IT
 - **Cihazlar**: hostname, IP, MAC, işletim sistemi, CPU, RAM, disk doluluk, açık kalma süresi, son görülme, ajan sürümü. Filtre + CSV dışa aktarım.
@@ -97,7 +96,6 @@ ErtePals'ın sahne (stage) motorundan alınanlar: **monitör başına tek şeffa
 ### 3.2 Tepsi menüsü (çalışana değer)
 - 📋 Duyurularım (son 20 duyuru)
 - 🛠️ IT'ye bildir (kısa metin + otomatik cihaz özeti)
-- ⚠️ Ramak kala bildir (anonim seçeneği)
 - ℹ️ Bu yazılım ne topluyor? (aydınlatma metni — şeffaflık)
 
 ### 3.3 Güvenlik
@@ -125,7 +123,7 @@ announcements    tür, kategori (ik|isg|it|genel), içerik, hedef, zaman, zorunl
 deliveries       duyuru × cihaz: gönderildi / görüldü / okudu / onayladı / yanıt
 emergencies      acil olay (tür, tatbikat mı, başlatan, bitiş)
 roll_calls       acil olay × cihaz: güvende / yardım / yanıt yok + kullanıcı + zaman
-reports          çalışan bildirimleri: it_help | near_miss (+ cihaz özeti, durum)
+reports          çalışan bildirimleri: it_help (+ cihaz özeti, durum)
 employees        İK listesi (doğum günü gün/ay, işe giriş) — kutlama otomasyonu
 special_days     takvim (sabit tarih, yıllık tekrar), rozet görseli
 enroll_keys      ajan kayıt anahtarları

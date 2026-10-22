@@ -92,7 +92,9 @@ güvenlik ve KVKK ekibinin de gönlü rahat olacak şekilde canlıya almak.
   kayıtları 2 yıl saklanır. Ekran görüntüsü alınmaz."
 - **VERBİS / veri işleme envanteri:** yukarıdaki kategoriler, saklama süreleri (Sistem → `RETENTION_*`), alıcı: kurum BT ve İSG birimleri.
 - **Doğum günü kutlamaları:** yalnızca gün/ay; çalışan istemezse Takvim → kutlama kapatılır.
-- **Ramak kala:** anonim gönderilebilir; anonim kayıtta kişi ve cihaz saklanmaz.
+- **Personel listesi:** yalnızca ad, kullanıcı adı/sicil, doğum günü (gün/ay), işe giriş, departman, lokasyon; amaç kutlama.
+  Ekip arkadaşlarına doğum günü duyurusu açılacaksa aydınlatma metnine eklenmeli.
+- **Onay akışı:** duyuruyu kimin hazırladığı, kimin (kimin adına) onayladığı/reddettiği denetim kaydında saklanır.
 
 ---
 

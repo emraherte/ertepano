@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, CheckCircle2, Clock, EyeOff, Inbox, MapPin, Monitor, PlayCircle, RotateCcw, Wrench } from 'lucide-react';
+import { CheckCircle2, Clock, EyeOff, Inbox, MapPin, Monitor, PlayCircle, RotateCcw, Wrench } from 'lucide-react';
 import { REPORT_LABELS, type ReportKind } from '@ertepano/shared';
 import { api, fmtAgo, fmtDateTime, useApi } from '../api';
 import { Badge, Button, Card, cn, EmptyState, Field, KeyValue, listItem, Modal, PageHeader, SkeletonCard, StatusBadge, Tabs, Textarea, useToast } from '../ui';
@@ -22,7 +22,6 @@ interface Report {
 
 const KIND_META: Record<ReportKind, { icon: typeof Wrench; label: string; tile: string; tone: 'info' | 'danger' }> = {
   it_help: { icon: Wrench, label: 'IT talebi', tile: 'from-sky-500 to-indigo-500 shadow-sky-500/25', tone: 'info' },
-  near_miss: { icon: AlertTriangle, label: 'Ramak kala', tile: 'from-rose-500 to-orange-500 shadow-rose-500/25', tone: 'danger' },
 };
 
 const TABS = [
@@ -65,7 +64,7 @@ export function Reports() {
       <PageHeader
         eyebrow={<><Inbox size={14} /> Gelen kutusu</>}
         title="Çalışan bildirimleri"
-        description="Çalışanların ekrandaki ErtePano simgesinden gönderdiği IT talepleri ve ramak kala bildirimleri."
+        description="Çalışanların ekrandaki ErtePano simgesinden gönderdiği IT talepleri (cihaz bilgisi otomatik eklenir)."
       />
 
       <div className="mb-6">
@@ -80,7 +79,7 @@ export function Reports() {
             <EmptyState
               icon={Inbox}
               title="Bildirim yok"
-              description={'Çalışanlar sağ alttaki simgeden "IT\'ye bildir" veya "Ramak kala bildir" seçeneğini kullandığında burada görünür.'}
+              description={'Çalışanlar sağ alttaki simgeden "IT\'ye bildir" seçeneğini kullandığında burada görünür.'}
             />
           ) : (
             <div className="divide-y divide-slate-200/60 dark:divide-white/5">

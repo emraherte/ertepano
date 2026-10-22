@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { requireRole } from '../auth.js';
 import { audit, db, nowIso } from '../db.js';
 import { annDto, type AnnRow, placementColumns, placementSchema, approvedDevices, countTargets, deviceMatches, parseTargets } from '../announcements.js';
-import { endAnnouncement, publish, republish } from '../lifecycle.js';
+import { endAnnouncement, republish } from '../lifecycle.js';
+import { approvalRequired, approvalState, requireReapproval, submitForPublish } from '../approvals.js';
 import { uuid } from '../security.js';
 import { publishCategories } from '../license.js';
 import { TEMPLATES } from '../templates.js';
@@ -44,6 +45,17 @@ function validateKind(b: { kind?: string; options?: string[] | null; countdownTo
   if (b.kind === 'countdown' && !b.countdownTo) return 'Geri sayım için hedef zaman gerekli';
   if (b.startsAt && b.endsAt && b.endsAt <= b.startsAt) return 'Bitiş zamanı başlangıçtan sonra olmalı';
   return null;
+}
+
+/** Onaydan sonra yeniden onay gerektiren değişiklik mi? Bitiş zamanını uzatmak/kısaltmak onayı bozmaz. */
+function contentChanged(a: AnnRow, b: Partial<z.infer<typeof annInput>>) {
+  const cur = annDto(a) as Record<string, unknown>;
+  const same = (k: string, x: unknown, y: unknown) => {
+    // tarih alanları biçimden bağımsız karşılaştırılır (+03:00 / Z)
+    if ((k === 'startsAt' || k === 'countdownTo') && x && y) return Date.parse(String(x)) === Date.parse(String(y));
+    return JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+  };
+  return Object.entries(b).some(([k, v]) => k !== 'endsAt' && k !== 'publish' && v !== undefined && !same(k, cur[k], v));
 }
 
 /** Duyuru başına teslim istatistikleri tek sorguda. */
@@ -95,7 +107,7 @@ export async function announcementRoutes(app: FastifyInstance) {
       args.push(q.category);
     }
     const rows = db
-      .prepare(`SELECT * FROM announcements WHERE ${where.join(' AND ')} ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 WHEN 'draft' THEN 2 ELSE 3 END, created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM announcements WHERE ${where.join(' AND ')} ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'rejected' THEN 1 WHEN 'active' THEN 2 WHEN 'scheduled' THEN 3 WHEN 'draft' THEN 4 ELSE 5 END, created_at DESC LIMIT ?`)
       .all(...args, q.limit) as AnnRow[];
     const stats = statsFor(rows.map((r) => r.id));
     const devices = approvedDevices();
@@ -127,6 +139,7 @@ export async function announcementRoutes(app: FastifyInstance) {
     const s = statsFor([id]).get(id) ?? { sent: 0, seen: 0, acked: 0, answered: 0 };
     return {
       item: annDto(a),
+      approval: approvalState(a, req.user!),
       stats: { targets: countTargets(parseTargets(a.targets)), ...s },
       answers,
       // Anket yanıtları kişiden bağımsız gösterilir; zorunlu onaylarda kim/ne zaman listesi denetim kanıtıdır.
@@ -153,9 +166,13 @@ export async function announcementRoutes(app: FastifyInstance) {
       JSON.stringify(b.targets), b.showOnKiosk ? 1 : 0, b.startsAt ?? null, b.endsAt ?? null, req.user!.username, now, now,
     );
     audit(req.user!.username, 'announcement_created', 'announcement', id, { title: b.title, publish: b.publish }, req.ip);
-    const row = b.publish ? publish(id)! : (db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow);
-    if (b.publish) audit(req.user!.username, 'announcement_published', 'announcement', id, { targets: b.targets }, req.ip);
-    return { item: annDto(row) };
+    if (b.publish) {
+      // onay akışı varsa onaya gönderilir, yoksa yayınlanır
+      const r = submitForPublish(id, req.user!, req.ip);
+      if (typeof r === 'string') return { item: annDto(db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow), warning: r };
+      return { item: annDto(r) };
+    }
+    return { item: annDto(db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow) };
   });
 
   app.patch('/api/announcements/:id', { preHandler: requireRole('ik', 'isg', 'it') }, async (req, reply) => {
@@ -182,9 +199,16 @@ export async function announcementRoutes(app: FastifyInstance) {
       merged.startsAt ?? null, merged.endsAt ?? null, nowIso(), id,
     );
     audit(req.user!.username, 'announcement_updated', 'announcement', id, b, req.ip);
-    if (b.publish && a.status === 'draft') publish(id);
-    else republish(id);
-    return { item: annDto(db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow) };
+    let warning: string | undefined;
+    if (b.publish && (a.status === 'draft' || a.status === 'rejected')) {
+      const r = submitForPublish(id, req.user!, req.ip);
+      if (typeof r === 'string') warning = r;
+    } else if (['pending', 'scheduled', 'active'].includes(a.status) && (approvalRequired(a.category) || approvalRequired(merged.category)) && contentChanged(a, b)) {
+      // onaylanmış içerik değişti: yayından kalkar, yeniden onaya gider (yalnızca bitiş zamanı değişikliği hariç)
+      requireReapproval(id, req.user!, req.ip);
+      warning = 'İçerik değiştiği için duyuru yeniden onaya gönderildi';
+    } else republish(id);
+    return { item: annDto(db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow), ...(warning ? { warning } : {}) };
   });
 
   app.post('/api/announcements/:id/publish', { preHandler: requireRole('ik', 'isg', 'it') }, async (req, reply) => {
@@ -192,9 +216,9 @@ export async function announcementRoutes(app: FastifyInstance) {
     const a = db.prepare('SELECT * FROM announcements WHERE id = ?').get(id) as AnnRow | undefined;
     if (!a) return reply.code(404).send({ error: 'Duyuru bulunamadı' });
     if (!publishCategories(req.user!.role).includes(a.category)) return reply.code(403).send({ error: 'Bu kategoride yetkiniz ya da lisansınız yok' });
-    const row = publish(id)!;
-    audit(req.user!.username, 'announcement_published', 'announcement', id, undefined, req.ip);
-    return { item: annDto(row) };
+    const r = submitForPublish(id, req.user!, req.ip);
+    if (typeof r === 'string') return reply.code(400).send({ error: r });
+    return { item: annDto(r) };
   });
 
   app.post('/api/announcements/:id/end', { preHandler: requireRole('ik', 'isg', 'it') }, async (req, reply) => {

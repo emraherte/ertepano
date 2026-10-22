@@ -19,7 +19,8 @@ import {
 } from 'lucide-react';
 import { KIND_LABELS, ROLE_CATEGORIES } from '@ertepano/shared';
 import { api, fmtDateTime, pct, useApi } from '../api';
-import type { Announcement, Stats } from '../types';
+import type { Announcement, ApprovalState, Stats } from '../types';
+import { ApprovalPanel } from '../components/ApprovalPanel';
 import { Preview } from '../components/Preview';
 import { useLicense } from '../components/license';
 import {
@@ -70,7 +71,7 @@ export function AnnouncementDetail() {
   const { categoriesFor } = useLicense();
   const nav = useNavigate();
   const toast = useToast();
-  const { data, reload } = useApi<{ item: Announcement; stats: Stats; answers: Record<string, number>; deliveries: DeliveryRow[]; personal?: boolean }>(`/api/announcements/${id}`, 10000);
+  const { data, reload } = useApi<{ item: Announcement; approval: ApprovalState; stats: Stats; answers: Record<string, number>; deliveries: DeliveryRow[]; personal?: boolean }>(`/api/announcements/${id}`, 10000);
   const [filter, setFilter] = useState<'all' | 'pending' | 'done'>('all');
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [busy, setBusy] = useState(false);
@@ -168,8 +169,14 @@ export function AnnouncementDetail() {
           <>
             <Button variant="ghost" icon={ArrowLeft} to="/duyurular">Duyurular</Button>
             {canEdit && a.status !== 'ended' && <Button icon={Pencil} to={`/duyurular/${a.id}/duzenle`}>Düzenle</Button>}
-            {canEdit && a.status === 'draft' && (
-              <Button variant="primary" icon={Rocket} loading={busy} onClick={() => act('/publish', 'Yayınlandı')}>Yayınla</Button>
+            {canEdit && (a.status === 'draft' || a.status === 'rejected') && (
+              data.approval.required ? (
+                <Button variant="primary" icon={Send} loading={busy} onClick={() => act('/publish', 'Onaya gönderildi')}>
+                  {a.status === 'rejected' ? 'Yeniden onaya gönder' : 'Onaya gönder'}
+                </Button>
+              ) : (
+                <Button variant="primary" icon={Rocket} loading={busy} onClick={() => act('/publish', 'Yayınlandı')}>Yayınla</Button>
+              )
             )}
             {canEdit && (a.status === 'active' || a.status === 'scheduled') && (
               <Button variant="danger" icon={Square} onClick={() => setConfirm({ kind: 'end' })}>Yayını bitir</Button>
@@ -181,6 +188,7 @@ export function AnnouncementDetail() {
 
       <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="space-y-6">
+          {(a.status === 'pending' || a.status === 'rejected') && <ApprovalPanel a={a} approval={data.approval} onChange={reload} />}
           <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
             <StatCard icon={Send} tone="sky" label="Gönderildi" value={s.sent} sub={`hedefte ${s.targets} cihaz`} />
             <StatCard
@@ -334,6 +342,7 @@ export function AnnouncementDetail() {
             />
             {a.body && <p className="mt-5 border-t border-slate-200/60 pt-5 text-[14px] leading-relaxed whitespace-pre-wrap text-slate-600 dark:border-white/10 dark:text-slate-300">{a.body}</p>}
           </Card>
+          {a.status !== 'pending' && a.status !== 'rejected' && data.approval.round > 0 && <ApprovalPanel a={a} approval={data.approval} onChange={reload} />}
         </div>
       </div>
 

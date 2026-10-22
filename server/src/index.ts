@@ -12,6 +12,8 @@ import { authRoutes } from './auth.js';
 import { bootstrap } from './bootstrap.js';
 import { agentRoutes } from './hub.js';
 import { adminRoutes } from './routes/admin.js';
+import { employeeRoutes } from './employees.js';
+import { approvalRoutes } from './approvals.js';
 import { setupRoutes, startBackups } from './setup.js';
 import { announcementRoutes } from './routes/announcements.js';
 import { deviceRoutes } from './routes/devices.js';
@@ -64,6 +66,8 @@ await app.register(emergencyRoutes);
 await app.register(deviceRoutes);
 await app.register(adminRoutes);
 await app.register(setupRoutes);
+await app.register(employeeRoutes);
+await app.register(approvalRoutes);
 
 app.get('/api/health', async () => ({ ok: true, publicKey: publicKeyBase64 }));
 

@@ -27,6 +27,7 @@ import {
   Rocket,
   Users as UsersIcon,
   X,
+  GitPullRequestArrow,
 } from 'lucide-react';
 import { EMERGENCY_ROLES, type LicenseInfo, type Module, ROLE_LABELS, type Role } from '@ertepano/shared';
 import { api, setMfaSetupRequiredHandler, setUnauthorizedHandler, useApi } from './api';
@@ -41,6 +42,7 @@ import { AnnouncementEditor } from './pages/AnnouncementEditor';
 import { AnnouncementDetail } from './pages/AnnouncementDetail';
 import { Emergency } from './pages/Emergency';
 import { Reports } from './pages/Reports';
+import { Approvals } from './pages/Approvals';
 import { Devices } from './pages/Devices';
 import { CalendarPage } from './pages/Calendar';
 import { AgentSetup } from './pages/AgentSetup';
@@ -109,7 +111,7 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
   const nav = useNavigate();
   const { dark, toggle } = useTheme();
   const em = useApi<{ item: { id: string; title: string; drill: boolean } | null }>('/api/emergencies/active', 5000);
-  const dash = useApi<{ devices: { pending: number; online: number; total: number }; openReports: Record<string, number> }>('/api/dashboard', 20000);
+  const dash = useApi<{ devices: { pending: number; online: number; total: number }; openReports: Record<string, number>; approvalsWaiting?: number }>('/api/dashboard', 20000);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [mobileNav, setMobileNav] = useState(false);
   useCommandHotkey(setPaletteOpen);
@@ -125,13 +127,14 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
       items: [
         { to: '/', label: 'Pano', icon: LayoutDashboard },
         { to: '/duyurular', label: 'Duyurular', icon: Megaphone },
+        { to: '/onaylar', label: 'Onaylar', icon: GitPullRequestArrow, count: dash.data?.approvalsWaiting },
         { to: '/acil', label: 'Acil Durum', icon: Siren, danger: true, modules: ['isg', 'it'] },
       ],
     },
     {
       title: 'Takip',
       items: [
-        { to: '/bildirimler', label: 'Çalışan bildirimleri', icon: Inbox, roles: ['it', 'isg'], count: openReports, modules: ['it', 'isg'] },
+        { to: '/bildirimler', label: 'IT talepleri', icon: Inbox, roles: ['it'], count: openReports, modules: ['it'] },
         { to: '/cihazlar', label: 'Cihazlar', icon: Monitor, roles: ['it'], count: dash.data?.devices.pending },
         { to: '/takvim', label: 'Takvim & kutlamalar', icon: CalendarHeart, roles: ['ik'] },
       ],
@@ -161,7 +164,7 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
     list.push({ id: 'logout', label: 'Çıkış yap', icon: LogOut, group: 'Tercihler', run: logout });
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user.role, dark, openReports, dash.data?.devices.pending]);
+  }, [user.role, dark, openReports, dash.data?.devices.pending, dash.data?.approvalsWaiting]);
 
   const sidebar = (
     <aside className="flex h-full flex-col gap-1 p-4">
@@ -352,11 +355,12 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
                 <Route path="/" element={setup.data && !setup.data.completed ? <Navigate to="/kurulum" replace /> : <Dashboard />} />
                 {can(['admin']) && <Route path="/kurulum" element={<SetupWizard />} />}
                 <Route path="/duyurular" element={<Announcements />} />
+                <Route path="/onaylar" element={<Approvals />} />
                 <Route path="/duyurular/yeni" element={<AnnouncementEditor />} />
                 <Route path="/duyurular/:id" element={<AnnouncementDetail />} />
                 <Route path="/duyurular/:id/duzenle" element={<AnnouncementEditor />} />
                 <Route path="/acil" element={any(['isg', 'it']) ? <Emergency canAct={EMERGENCY_ROLES.includes(user.role)} onChange={em.reload} /> : <ModuleLocked modules={['isg']} />} />
-                {can(['it', 'isg']) && <Route path="/bildirimler" element={any(['it', 'isg']) ? <Reports /> : <ModuleLocked modules={user.role === 'isg' ? ['isg'] : ['it']} />} />}
+                {can(['it']) && <Route path="/bildirimler" element={any(['it']) ? <Reports /> : <ModuleLocked modules={['it']} />} />}
                 {can(['it']) && <Route path="/cihazlar" element={<Devices />} />}
                 {can(['ik']) && <Route path="/takvim" element={<CalendarPage />} />}
                 {can(['it']) && <Route path="/ajan-kurulumu" element={<AgentSetup />} />}

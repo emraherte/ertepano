@@ -15,7 +15,7 @@ const TR_DAYS: { name: string; md: string; emoji: string; message: string }[] = 
   { name: '29 Ekim Cumhuriyet Bayramı', md: '10-29', emoji: '🇹🇷', message: 'Cumhuriyetimizin yıl dönümü kutlu olsun!' },
   { name: "10 Kasım Atatürk'ü Anma Günü", md: '11-10', emoji: '🖤', message: "Ulu Önder Mustafa Kemal Atatürk'ü saygı, sevgi ve özlemle anıyoruz. Saat 09:05'te saygı duruşu." },
   { name: 'Öğretmenler Günü', md: '11-24', emoji: '🍎', message: 'Tüm öğretmenlerimizin Öğretmenler Günü kutlu olsun.' },
-  { name: 'Dünya İş Sağlığı ve Güvenliği Günü', md: '04-28', emoji: '⛑️', message: 'Güvenli çalışma hepimizin sorumluluğu. Ramak kalaları bildirmeyi unutmayın.' },
+  { name: 'Dünya İş Sağlığı ve Güvenliği Günü', md: '04-28', emoji: '⛑️', message: 'Güvenli çalışma hepimizin sorumluluğu. Bir tehlike görürseniz İSG ekibine haber verin.' },
   { name: 'Kadınlar Günü', md: '03-08', emoji: '🌷', message: 'Dünya Kadınlar Günü kutlu olsun.' },
 ];
 

@@ -400,7 +400,6 @@ pub fn open_aux(app: &AppHandle, which: &str) {
         let (page, title, w, h) = match which.as_str() {
             "list" => ("list.html", "Duyurularım — ErtePano", 480.0, 640.0),
             "report-it" => ("report.html", "IT'ye bildir — ErtePano", 460.0, 520.0),
-            "report-nm" => ("report.html", "Ramak kala bildir — ErtePano", 460.0, 580.0),
             "about" => ("about.html", "Bu yazılım ne topluyor? — ErtePano", 540.0, 680.0),
             _ => return,
         };

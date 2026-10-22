@@ -133,7 +133,7 @@ export const publishCategories = (role: Role): Category[] => {
 };
 
 /** Çalışan bildirim türlerinin modülü */
-export const REPORT_MODULE: Record<ReportKind, Module> = { it_help: 'it', near_miss: 'isg' };
+export const REPORT_MODULE: Record<ReportKind, Module> = { it_help: 'it' };
 
 /** preHandler: modül lisanslı değilse 402 */
 export function requireModule(...mods: Module[]) {

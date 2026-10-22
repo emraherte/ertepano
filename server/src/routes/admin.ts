@@ -17,6 +17,7 @@ import { clearLdapSettings, ldapSettings, saveLdapSettings, settingsFromInput } 
 import { hasModule, invalidateLicense, licenseInfo, parseLicense, publishCategories, REPORT_MODULE, requireModule, serverId } from '../license.js';
 import type { ReportKind } from '@ertepano/shared';
 import { deviceAlerts } from './devices.js';
+import { inboxFor } from '../approvals.js';
 
 const mediaDir = path.join(config.dataDir, 'media');
 fs.mkdirSync(mediaDir, { recursive: true });
@@ -35,27 +36,6 @@ function sniffImage(file: string): string | null {
   return null;
 }
 
-/** "15.07", "15.07.1990", "1990-07-15", "07-15" → "07-15" */
-function toMonthDay(s: string | undefined): string | null {
-  if (!s) return null;
-  const t = s.trim();
-  let m = /^(\d{1,2})[./](\d{1,2})(?:[./](\d{4}))?$/.exec(t);
-  if (m) return `${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  m = /^(?:\d{4}-)?(\d{2})-(\d{2})$/.exec(t);
-  if (m) return `${m[1]}-${m[2]}`;
-  return null;
-}
-
-/** "01.09.2019" | "2019-09-01" → "2019-09-01" */
-function toDate(s: string | undefined): string | null {
-  if (!s) return null;
-  const t = s.trim();
-  let m = /^(\d{1,2})[./](\d{1,2})[./](\d{4})$/.exec(t);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t);
-  return m ? t : null;
-}
-
 export async function adminRoutes(app: FastifyInstance) {
   // ---- Pano (dashboard) ----
   app.get('/api/dashboard', { preHandler: requireRole() }, async (req) => {
@@ -66,7 +46,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const active = db.prepare("SELECT * FROM announcements WHERE status = 'active' AND kind != 'fullscreen' ORDER BY created_at DESC").all() as AnnRow[];
     const recent = db.prepare("SELECT * FROM announcements WHERE status IN ('active','ended') AND kind != 'fullscreen' AND auto_key IS NULL ORDER BY starts_at DESC LIMIT 6").all() as AnnRow[];
     const stat = db.prepare('SELECT COUNT(sent_at) sent, COUNT(seen_at) seen, COUNT(acked_at) acked, COUNT(answered_at) answered FROM deliveries WHERE announcement_id = ?');
-    const reportKinds = (role === 'admin' ? ['it_help', 'near_miss'] : role === 'it' ? ['it_help'] : role === 'isg' ? ['near_miss'] : []).filter((k) => hasModule(REPORT_MODULE[k as ReportKind]));
+    const reportKinds = (role === 'admin' || role === 'it' ? ['it_help'] : []).filter((k) => hasModule(REPORT_MODULE[k as ReportKind]));
     const openReports = reportKinds.length
       ? (db.prepare(`SELECT kind, COUNT(*) c FROM reports WHERE status != 'closed' AND kind IN (${reportKinds.map(() => '?').join(',')}) GROUP BY kind`).all(...reportKinds) as { kind: string; c: number }[])
       : [];
@@ -94,6 +74,7 @@ export async function adminRoutes(app: FastifyInstance) {
       emergency: emergency ? { ...emergency, drill: !!emergency.drill } : null,
       celebrations,
       pendingAcks,
+      approvalsWaiting: inboxFor(req.user!).length,
       canPublish: publishCategories(role),
     };
   });
@@ -103,8 +84,12 @@ export async function adminRoutes(app: FastifyInstance) {
     const q = z.object({ key: z.string(), loc: z.string().optional() }).parse(req.query);
     const key = getSetting('kiosk_key');
     if (!key || q.key !== key) return reply.code(403).send({ error: 'Geçersiz kiosk anahtarı' });
+    const lc = (v: string) => v.toLocaleLowerCase('tr');
+    // 'kiosk' / 'kiosk-loc:X': yalnızca TV ekranları için (bilgisayarlara gitmez), ör. günün kutlamaları
     const fits = (targets: string[]) =>
-      targets.includes('all') || (q.loc ? targets.some((t) => t.toLocaleLowerCase('tr') === `loc:${q.loc}`.toLocaleLowerCase('tr')) : false);
+      targets.includes('all') ||
+      targets.includes('kiosk') ||
+      (q.loc ? targets.some((t) => lc(t) === lc(`loc:${q.loc}`) || lc(t) === lc(`kiosk-loc:${q.loc}`)) : false);
     const rows = db.prepare("SELECT * FROM announcements WHERE status = 'active' AND show_on_kiosk = 1 ORDER BY created_at DESC").all() as AnnRow[];
     const emergencyRow = rows.find((a) => a.kind === 'fullscreen' && fits(parseTargets(a.targets)));
     const items = rows
@@ -228,60 +213,6 @@ export async function adminRoutes(app: FastifyInstance) {
     db.prepare('DELETE FROM special_days WHERE id = ?').run(id);
     refreshToday(id);
     audit(req.user!.username, 'special_day_deleted', 'special_day', id, undefined, req.ip);
-    return { ok: true };
-  });
-
-  // ---- Çalışanlar (kutlama otomasyonu) ----
-  app.get('/api/employees', { preHandler: [requireRole('ik'), requireModule('ik')] }, async () => ({
-    items: db
-      .prepare('SELECT username, full_name fullName, birth_md birthMd, start_date startDate, department, location, celebrate FROM employees ORDER BY full_name')
-      .all()
-      .map((r) => ({ ...(r as object), celebrate: !!(r as { celebrate: number }).celebrate })),
-  }));
-
-  /** CSV: kullanıcı adı; ad soyad; doğum günü (GG.AA); işe giriş (GG.AA.YYYY); departman; lokasyon */
-  app.post('/api/employees/import', { preHandler: [requireRole('ik'), requireModule('ik')] }, async (req) => {
-    const b = z.object({ csv: z.string().max(2_000_000), replace: z.boolean().default(false) }).parse(req.body);
-    const lines = b.csv.replace(/^﻿/, '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    const sep = [';', '\t', ','].find((s) => lines[0]?.includes(s)) ?? ';';
-    const rows = lines.map((l) => l.split(sep).map((c) => c.trim().replace(/^"|"$/g, '')));
-    if (rows[0] && /kullan|user/i.test(rows[0][0])) rows.shift();
-    const errors: string[] = [];
-    let imported = 0;
-    db.transaction(() => {
-      if (b.replace) db.prepare('DELETE FROM employees').run();
-      const up = db.prepare(
-        `INSERT INTO employees(username, full_name, birth_md, start_date, department, location) VALUES(?,?,?,?,?,?)
-         ON CONFLICT(username) DO UPDATE SET full_name=excluded.full_name, birth_md=excluded.birth_md, start_date=excluded.start_date,
-           department=excluded.department, location=excluded.location`,
-      );
-      rows.forEach((r, i) => {
-        const [username, fullName, birth, start, department, location] = r;
-        if (!username || !fullName) {
-          errors.push(`Satır ${i + 1}: kullanıcı adı ve ad soyad gerekli`);
-          return;
-        }
-        up.run(username, fullName, toMonthDay(birth), toDate(start), department || null, location || null);
-        imported++;
-      });
-    })();
-    audit(req.user!.username, 'employees_imported', 'employee', null, { imported, replace: b.replace, errors: errors.length }, req.ip);
-    runDailyAutomation();
-    return { imported, errors: errors.slice(0, 20) };
-  });
-
-  app.patch('/api/employees/:username', { preHandler: [requireRole('ik'), requireModule('ik')] }, async (req) => {
-    const { username } = req.params as { username: string };
-    const b = z.object({ celebrate: z.boolean() }).parse(req.body);
-    db.prepare('UPDATE employees SET celebrate = ? WHERE username = ?').run(b.celebrate ? 1 : 0, username);
-    audit(req.user!.username, 'employee_updated', 'employee', username, b, req.ip);
-    return { ok: true };
-  });
-
-  app.delete('/api/employees/:username', { preHandler: [requireRole('ik'), requireModule('ik')] }, async (req) => {
-    const { username } = req.params as { username: string };
-    db.prepare('DELETE FROM employees WHERE username = ?').run(username);
-    audit(req.user!.username, 'employee_deleted', 'employee', username, undefined, req.ip);
     return { ok: true };
   });
 

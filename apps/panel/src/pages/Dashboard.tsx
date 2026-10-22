@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { ArrowRight, ArrowUpRight, Award, Cake, CheckCheck, Inbox, Megaphone, MonitorCheck, Plus, Siren, Sparkles, Wrench } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Award, Cake, CheckCheck, Inbox, Megaphone, MonitorCheck, Plus, Siren, Sparkles, Wrench, GitPullRequestArrow } from 'lucide-react';
 import type { Category } from '@ertepano/shared';
 import { fmtAgo, pct, useApi } from '../api';
 import type { Announcement } from '../types';
@@ -15,6 +15,7 @@ interface Dash {
   emergency: { id: string; title: string; drill: boolean; startedAt: string } | null;
   celebrations: { fullName: string; department: string | null; type: 'birthday' | 'anniversary' }[];
   pendingAcks: { id: string; title: string; category: Category; sent: number; acked: number }[];
+  approvalsWaiting?: number;
   canPublish: Category[];
 }
 
@@ -65,7 +66,7 @@ export function Dashboard() {
   const { data } = useApi<Dash>('/api/dashboard', 10000);
   if (!data) return <PageSkeleton />;
   const d = data.devices;
-  const reports = (data.openReports.it_help ?? 0) + (data.openReports.near_miss ?? 0);
+  const reports = data.openReports.it_help ?? 0;
   const today = new Date().toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' });
 
   return (
@@ -81,6 +82,21 @@ export function Dashboard() {
               <div className="truncate text-lg font-bold tracking-tight">{data.emergency.title}</div>
             </div>
             <span className="flex items-center gap-1.5 font-semibold">Canlı yoklama <ArrowRight size={18} /></span>
+          </Card>
+        </Link>
+      )}
+
+      {!!data.approvalsWaiting && (
+        <Link to="/onaylar" className="xl:col-span-12">
+          <Card className="flex items-center gap-4 border-0 bg-linear-to-r from-amber-500/15 to-transparent p-5 ring-1 ring-amber-500/30" interactive>
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-amber-500 text-white shadow-lg shadow-amber-500/30">
+              <GitPullRequestArrow size={20} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-[15px] font-semibold text-slate-900 dark:text-white">Onayınızı bekleyen {data.approvalsWaiting} duyuru var</div>
+              <div className="text-[13px] text-slate-500 dark:text-slate-400">Onaylanana kadar çalışanların ekranına gitmez.</div>
+            </div>
+            <span className="flex items-center gap-1.5 text-[14px] font-semibold text-amber-700 dark:text-amber-300">İncele <ArrowRight size={16} /></span>
           </Card>
         </Link>
       )}
@@ -145,7 +161,6 @@ export function Dashboard() {
             Object.keys(data.openReports).length ? (
               <span className="flex gap-3">
                 {data.openReports.it_help !== undefined && <span>{data.openReports.it_help} IT</span>}
-                {data.openReports.near_miss !== undefined && <span>{data.openReports.near_miss} ramak kala</span>}
               </span>
             ) : (
               'yetki alanınızda değil'

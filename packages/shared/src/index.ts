@@ -78,7 +78,8 @@ export const BADGE_POSITION_LABELS: Record<BadgePosition, string> = {
 };
 export const BADGE_SIZE = { min: 64, max: 480, default: 160 } as const;
 
-export type AnnouncementStatus = 'draft' | 'scheduled' | 'active' | 'ended';
+/** pending: onay bekliyor · rejected: onaycı reddetti (düzenlenip yeniden gönderilir) */
+export type AnnouncementStatus = 'draft' | 'pending' | 'rejected' | 'scheduled' | 'active' | 'ended';
 
 /** Ajanın ekranda gösterdiği, imzalanan yük (docs/PROTOKOL.md §4). */
 export interface AgentAnnouncement {
@@ -136,7 +137,7 @@ export type AgentToServer =
   | { t: 'telemetry'; data: Telemetry }
   | { t: 'ack'; id: string; action: 'seen' | 'read' | 'acked' | 'dismissed' | 'answered'; answer?: string }
   | { t: 'safety'; emergencyId: string; status: 'safe' | 'help'; note?: string }
-  | { t: 'report'; kind: 'it_help' | 'near_miss'; text: string; anonymous?: boolean }
+  | { t: 'report'; kind: 'it_help'; text: string }
   | { t: 'pong' };
 
 export type ServerToAgent =
@@ -150,11 +151,10 @@ export type ServerToAgent =
 export const EMERGENCY_TYPES = ['yangin', 'deprem', 'tahliye', 'gaz', 'kimyasal', 'siber', 'diger'] as const;
 export type EmergencyType = (typeof EMERGENCY_TYPES)[number];
 
-export const REPORT_KINDS = ['it_help', 'near_miss'] as const;
+export const REPORT_KINDS = ['it_help'] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 export const REPORT_LABELS: Record<ReportKind, string> = {
   it_help: 'IT destek talebi',
-  near_miss: 'Ramak kala bildirimi',
 };
 
 // ---- Modüler lisans ----------------------------------------------------------------------------
@@ -170,8 +170,8 @@ export const MODULE_LABELS: Record<Module, string> = {
 };
 
 export const MODULE_FEATURES: Record<Module, string[]> = {
-  ik: ['İK duyuruları ve zorunlu okuma', 'Mini anketler', 'Doğum günü, kıdem ve hoş geldin kutlamaları (CSV)'],
-  isg: ['Tam ekran acil durum yayını', 'Canlı "Güvendeyim / Yardım lazım" yoklaması', 'Tatbikat modu ve tutanak', 'Ramak kala bildirimleri', 'İSG talimatları ve zorunlu onay'],
+  ik: ['İK duyuruları ve zorunlu okuma', 'Mini anketler', 'Doğum günü, kıdem ve hoş geldin kutlamaları (İK listesi, AD, kiosk)'],
+  isg: ['Tam ekran acil durum yayını', 'Canlı "Güvendeyim / Yardım lazım" yoklaması', 'Tatbikat modu ve tutanak', 'İSG talimatları ve zorunlu onay'],
   it: ['Donanım envanteri ve sağlık uyarıları', 'Excel/CSV dışa aktarım', 'Bakım geri sayımı ve IT duyuruları', 'Siber olay acil uyarısı', '"IT\'ye bildir" talepleri'],
 };
 

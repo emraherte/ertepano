@@ -431,6 +431,174 @@ describe('Active Directory ayarları ve kurulum kontrol listesi', () => {
   });
 });
 
+describe('Duyuru onay akışı ve vekalet', () => {
+  const mudur = new Client();
+  const gm = new Client();
+  const vekil = new Client();
+  const users: Record<string, string> = {};
+  let annId = '';
+
+  before(async () => {
+    for (const [c, username, role] of [[mudur, 'ik.mudur', 'ik'], [gm, 'gm.test', 'viewer'], [vekil, 'vekil.test', 'viewer']] as const) {
+      const u = await admin.post('/api/users', { username, fullName: username, role });
+      assert.equal(u.status, 200, JSON.stringify(u.json));
+      users[username] = u.json.item?.id ?? u.json.id;
+      const l = await c.post('/api/auth/login', { username, password: u.json.password });
+      assert.equal(l.status, 200, JSON.stringify(l.json));
+    }
+  });
+
+  it('yalnızca yönetici akış tanımlar; etkin onaycısı olmayan adım reddedilir', async () => {
+    const steps = [
+      { name: 'İK müdürü', approvers: ['user:ik.mudur'], min: 1 },
+      { name: 'Genel müdür', approvers: ['user:gm.test'], min: 1 },
+    ];
+    assert.equal((await ik.req('PUT', '/api/approval-policies/ik', { enabled: true, steps })).status, 403);
+    const bad = await admin.req('PUT', '/api/approval-policies/ik', { enabled: true, steps: [{ name: 'Hayalet', approvers: ['user:yok.boyle'], min: 1 }] });
+    assert.equal(bad.status, 400);
+    const ok = await admin.req('PUT', '/api/approval-policies/ik', { enabled: true, steps });
+    assert.equal(ok.status, 200, JSON.stringify(ok.json));
+    assert.equal(ok.json.item.steps.length, 2);
+  });
+
+  it('yayın isteği onaya düşer, ekranlara gitmez', async () => {
+    const r = await ik.post('/api/announcements', { kind: 'toast', category: 'ik', title: 'Yan haklar güncellendi', body: 'Ayrıntılar intranette.', publish: true });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    annId = r.json.item.id;
+    assert.equal(r.json.item.status, 'pending');
+    const d = await ik.get(`/api/announcements/${annId}`);
+    assert.equal(d.json.approval.required, true);
+    assert.equal(d.json.approval.currentStep, 0);
+    assert.equal(d.json.approval.canApprove, false);
+  });
+
+  it('hazırlayan ve yetkisiz kişi onaylayamaz', async () => {
+    const self = await ik.post(`/api/announcements/${annId}/approve`, {});
+    assert.equal(self.status, 400);
+    assert.equal((await viewer.post(`/api/announcements/${annId}/approve`, {})).status, 400);
+    assert.equal((await gm.post(`/api/announcements/${annId}/approve`, {})).status, 400, 'ikinci adımın onaycısı sırası gelmeden onaylayamaz');
+  });
+
+  it('adım adım onay; aynı kişi iki adımı geçemez; ret gerekçe ister', async () => {
+    const inbox = await mudur.get('/api/approvals/inbox');
+    assert.ok(inbox.json.waiting.some((x: any) => x.id === annId));
+    const a1 = await mudur.post(`/api/announcements/${annId}/approve`, { note: 'Uygundur' });
+    assert.equal(a1.status, 200, JSON.stringify(a1.json));
+    assert.equal(a1.json.item.status, 'pending');
+    assert.equal(a1.json.item.approvalStep, 1);
+    assert.equal((await mudur.post(`/api/announcements/${annId}/approve`, {})).status, 400);
+    assert.equal((await gm.post(`/api/announcements/${annId}/reject`, { reason: 'x' })).status, 400);
+    const rj = await gm.post(`/api/announcements/${annId}/reject`, { reason: 'Hukuk görüşü alınsın' });
+    assert.equal(rj.status, 200);
+    assert.equal(rj.json.item.status, 'rejected');
+    assert.equal(rj.json.item.rejectedReason, 'Hukuk görüşü alınsın');
+  });
+
+  it('düzeltilip yeniden gönderilir; vekil "adına" onaylar; son adımda yayına girer', async () => {
+    const re = await ik.req('PATCH', `/api/announcements/${annId}`, { body: 'Hukuk onaylı metin.', publish: true });
+    assert.equal(re.status, 200, JSON.stringify(re.json));
+    assert.equal(re.json.item.status, 'pending');
+    assert.equal(re.json.item.approvalStep, 0);
+
+    const start = new Date(Date.now() - 60_000).toISOString();
+    const end = new Date(Date.now() + 86400_000).toISOString();
+    assert.equal((await vekil.post('/api/delegations', { fromUserId: users['ik.mudur'], toUserId: users['vekil.test'], startsAt: start, endsAt: end })).status, 403);
+    const dg = await mudur.post('/api/delegations', { toUserId: users['vekil.test'], startsAt: start, endsAt: end, reason: 'Yıllık izin' });
+    assert.equal(dg.status, 200, JSON.stringify(dg.json));
+    assert.equal(dg.json.item.active, true);
+
+    const v = await vekil.post(`/api/announcements/${annId}/approve`, {});
+    assert.equal(v.status, 200, JSON.stringify(v.json));
+    const g = await gm.post(`/api/announcements/${annId}/approve`, {});
+    assert.equal(g.status, 200);
+    assert.equal(g.json.item.status, 'active');
+    const d = await admin.get(`/api/announcements/${annId}`);
+    const round2 = d.json.approval.history.filter((h: any) => h.round === 2);
+    assert.deepEqual(round2.map((h: any) => [h.username, h.onBehalfOf, h.decision]), [['vekil.test', 'ik.mudur', 'approved'], ['gm.test', null, 'approved']]);
+
+    assert.equal((await mudur.post(`/api/delegations/${dg.json.item.id}/revoke`)).status, 200);
+  });
+
+  it('onaylı duyurunun içeriği değişirse yeniden onaya döner; yalnızca bitiş değişirse dönmez', async () => {
+    const endOnly = await ik.req('PATCH', `/api/announcements/${annId}`, { endsAt: new Date(Date.now() + 3 * 86400_000).toISOString() });
+    assert.equal(endOnly.json.item.status, 'active');
+    const changed = await ik.req('PATCH', `/api/announcements/${annId}`, { title: 'Yan haklar — güncel' });
+    assert.equal(changed.json.item.status, 'pending');
+    assert.match(changed.json.warning, /yeniden onaya/);
+  });
+
+  it('akışı olmayan kategori doğrudan yayınlanır', async () => {
+    const r = await ik.post('/api/announcements', { kind: 'toast', category: 'genel', title: 'Servis saatleri', body: '', publish: true });
+    assert.equal(r.json.item.status, 'active');
+  });
+});
+
+describe('Personel listesi ve kutlamalar', () => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const [yy, mm, dd] = today.split('-');
+  const csv = [
+    'Sicil No;Adı Soyadı;Doğum Tarihi;İşe Giriş Tarihi;Bölüm;Şube;Kullanıcı Adı',
+    `1001;Ayşe Demir;${dd}.${mm}.1990;01.09.2019;İK;Merkez;ayse.demir`,
+    '1002;Mehmet Kaya;03.02.1985;15.03.2015;Üretim;Gebze;',
+    `1003;Zeynep Ak;${dd}.${mm}.1995;10.01.2024;Üretim;Gebze;`,
+  ].join('\n');
+
+  it('başlıkları tanır, önizlemede yazmaz, doğum yılını atar', async () => {
+    const p = await ik.post('/api/employees/import', { text: csv, dryRun: true });
+    assert.equal(p.status, 200, JSON.stringify(p.json));
+    assert.equal(p.json.mapping.employeeNo, 'Sicil No');
+    assert.equal(p.json.mapping.birth, 'Doğum Tarihi');
+    assert.equal(p.json.mapping.username, 'Kullanıcı Adı');
+    assert.equal(p.json.created, 3);
+    assert.equal(p.json.withoutPc, 2);
+    assert.equal(p.json.yearsDropped, 3);
+    assert.equal((await ik.get('/api/employees')).json.items.length, 0, 'önizleme yazmaz');
+  });
+
+  it('uygulanır; aynı liste tekrar yüklenince değişiklik olmaz; veritabanında yıl yok', async () => {
+    const r = await ik.post('/api/employees/import', { text: csv, dryRun: false });
+    assert.equal(r.json.created, 3);
+    const again = await ik.post('/api/employees/import', { text: csv, dryRun: false });
+    assert.equal(again.json.unchanged, 3);
+    const db = new Database(path.join(DATA, 'ertepano.db'), { readonly: true });
+    const rows = db.prepare('SELECT birth_md FROM employees').all() as { birth_md: string }[];
+    db.close();
+    assert.ok(rows.every((x) => /^\d{2}-\d{2}$/.test(x.birth_md)));
+  });
+
+  it('bilgisayarı olmayan çalışan elle eklenir; liste değiştirildiğinde elle girilen korunur', async () => {
+    const m = await ik.post('/api/employees', { fullName: 'Hasan Usta', birthMd: '12.04', department: 'Bakım', location: 'Gebze' });
+    assert.equal(m.status, 200, JSON.stringify(m.json));
+    assert.equal(m.json.item.hasPc, false);
+    assert.equal((await ik.post('/api/employees', { fullName: 'Başka Ayşe', username: 'AYSE.DEMIR' })).status, 409);
+    const r = await ik.post('/api/employees/import', { text: csv.split('\n').slice(0, 2).join('\n'), dryRun: false, replace: true });
+    assert.equal(r.json.removed, 2);
+    const names = (await ik.get('/api/employees')).json.items.map((e: any) => e.fullName).sort();
+    assert.deepEqual(names, ['Ayşe Demir', 'Hasan Usta']);
+  });
+
+  it('bugünkü doğum günleri kişinin ekranına ve lokasyonun kiosk ekranına düşer', async () => {
+    await ik.post('/api/employees', { fullName: 'Zeynep Ak', birthMd: `${dd}.${mm}`, department: 'Üretim', location: 'Gebze' });
+    const s = await ik.req('PUT', '/api/celebrations/settings', { personal: true, team: false, kiosk: true, anniversaries: true });
+    assert.equal(s.status, 200);
+    const key = (await ik.get('/api/settings/kiosk')).json.key;
+    const k = await fetch(`${BASE}/api/kiosk?key=${key}&loc=Gebze`).then((r) => r.json());
+    const cel = k.items.find((i: any) => i.title === 'Bugün kutladıklarımız');
+    assert.ok(cel, JSON.stringify(k.items));
+    assert.match(cel.body, /Zeynep A\./);
+    const list = await admin.get('/api/announcements?limit=500');
+    assert.ok(list.json.items.some((a: any) => a.auto && a.targets.includes('user:ayse.demir') && a.title.includes('Ayşe')));
+    assert.ok(!yy.startsWith('0'));
+  });
+
+  it('AD bağlantısı yokken eşitleme açıkça hata verir; yetkisiz rol erişemez', async () => {
+    const r = await ik.post('/api/employees/sync', { dryRun: true });
+    assert.equal(r.status, 400);
+    assert.match(r.json.error, /Active Directory/);
+    assert.equal((await viewer.get('/api/employees')).status, 403);
+  });
+});
+
 describe('Modüler lisans', () => {
   it('lisanssız kurulum 30 gün tüm modüllerle deneme modunda', async () => {
     const r = await admin.get('/api/license');

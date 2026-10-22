@@ -195,3 +195,30 @@ export async function ldapTest(username?: string, l: LdapSettings = ldapSettings
     await client.unbind().catch(() => {});
   }
 }
+
+export interface DirectoryUser {
+  username: string;
+  fullName: string;
+  /** istenen öznitelikler (ad → ilk değer) */
+  attrs: Record<string, string>;
+}
+
+/** Personel eşitlemesi: filtreye uyan tüm kullanıcılar (sayfalı arama; büyük dizinlerde 1000 sınırına takılmaz). */
+export async function ldapSearchUsers(l: LdapSettings, filter: string, extra: string[]): Promise<DirectoryUser[]> {
+  const client = await connect(l);
+  try {
+    const { searchEntries } = await client.search(l.baseDn!, {
+      scope: 'sub',
+      filter,
+      paged: { pageSize: 500 },
+      attributes: ['sAMAccountName', 'uid', 'displayName', 'cn', ...extra],
+    });
+    return searchEntries.map((e) => ({
+      username: (str(attr(e, 'sAMAccountName')) ?? str(attr(e, 'uid')) ?? '').toLowerCase(),
+      fullName: (str(attr(e, 'displayName')) ?? str(attr(e, 'cn')) ?? '').trim(),
+      attrs: Object.fromEntries(extra.map((a) => [a, (str(attr(e, a)) ?? '').trim()])),
+    }));
+  } finally {
+    await client.unbind().catch(() => {});
+  }
+}

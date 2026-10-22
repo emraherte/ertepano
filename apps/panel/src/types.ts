@@ -50,7 +50,48 @@ export interface Announcement {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+  submittedBy?: string | null;
+  submittedAt?: string | null;
+  approvalStep?: number;
+  rejectedReason?: string | null;
   stats?: Stats;
+}
+
+export interface ApprovalStepState {
+  name: string;
+  min: number;
+  approvers: string[];
+  approvals: { username: string; onBehalfOf: string | null; note: string | null; at: string }[];
+  state: 'idle' | 'current' | 'done' | 'waiting';
+}
+
+export interface ApprovalState {
+  required: boolean;
+  round: number;
+  currentStep: number | null;
+  steps: ApprovalStepState[];
+  history: { round: number; step: number; username: string; onBehalfOf: string | null; decision: 'approved' | 'rejected'; note: string | null; at: string }[];
+  canApprove: boolean;
+  /** vekaleten onaylanacaksa kimin adına */
+  approveAs: string | null;
+  reason: string | null;
+}
+
+export interface ApprovalPolicy {
+  category: Category;
+  label: string;
+  enabled: boolean;
+  allowSelf: boolean;
+  steps: { name: string; approvers: string[]; min: number }[];
+  updatedBy: string | null;
+  updatedAt: string | null;
+}
+
+export interface DirectoryUser {
+  id: string;
+  username: string;
+  fullName: string;
+  role: Role;
 }
 
 export interface Template {

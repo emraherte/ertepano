@@ -221,14 +221,14 @@ export async function deviceRoutes(app: FastifyInstance) {
     return { serverUrl: baseUrl(req), enrollKey: k.key, publicKey: publicKeyBase64 };
   });
 
-  // ---- Çalışan bildirimleri (IT'ye bildir / ramak kala) ----
+  // ---- Çalışan bildirimleri (IT'ye bildir) ----
 
   const visibleKinds = (role: Role): ReportKind[] =>
-    (role === 'admin' ? (['it_help', 'near_miss'] as ReportKind[]) : role === 'it' ? (['it_help'] as ReportKind[]) : role === 'isg' ? (['near_miss'] as ReportKind[]) : []).filter((k) =>
+    (role === 'admin' || role === 'it' ? (['it_help'] as ReportKind[]) : []).filter((k) =>
       hasModule(REPORT_MODULE[k]),
     );
 
-  app.get('/api/reports', { preHandler: requireRole('it', 'isg') }, async (req) => {
+  app.get('/api/reports', { preHandler: requireRole('it') }, async (req) => {
     const kinds = visibleKinds(req.user!.role);
     const q = z.object({ status: z.string().optional() }).parse(req.query);
     const rows = db
@@ -243,7 +243,7 @@ export async function deviceRoutes(app: FastifyInstance) {
     return { items: rows.map((r) => ({ ...r, anonymous: !!r.anonymous, deviceSummary: r.deviceSummary ? JSON.parse(String(r.deviceSummary)) : null })) };
   });
 
-  app.patch('/api/reports/:id', { preHandler: requireRole('it', 'isg') }, async (req, reply) => {
+  app.patch('/api/reports/:id', { preHandler: requireRole('it') }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const b = z.object({ status: z.enum(['open', 'in_progress', 'closed']), handlerNote: z.string().max(1000).optional() }).parse(req.body);
     const r = db.prepare('SELECT kind FROM reports WHERE id = ?').get(id) as { kind: ReportKind } | undefined;

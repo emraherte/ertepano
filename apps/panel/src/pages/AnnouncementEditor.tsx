@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { CATEGORY_LABELS, KIND_LABELS, ROLE_CATEGORIES, type Category, type Kind } from '@ertepano/shared';
 import { api, fromLocalInput, toLocalInput, uploadImage, useApi } from '../api';
-import type { Announcement, Template } from '../types';
+import type { Announcement, ApprovalPolicy, Template } from '../types';
 import { Preview } from '../components/Preview';
 import { useLicense } from '../components/license';
 import { PlacementPicker } from '../components/PlacementPicker';
@@ -139,6 +139,7 @@ export function AnnouncementEditor() {
   const allowed = categoriesFor(user.role);
   const templates = useApi<{ items: Template[] }>('/api/templates');
   const existing = useApi<{ item: Announcement }>(id ? `/api/announcements/${id}` : null);
+  const policies = useApi<{ items: ApprovalPolicy[] }>('/api/approval-policies');
   const [form, setForm] = useState<Form | null>(null);
   const [schedule, setSchedule] = useState(false);
   const [busy, setBusy] = useState<'draft' | 'publish' | null>(null);
@@ -257,6 +258,9 @@ export function AnnouncementEditor() {
 
   const placeholders = /\[[^\]]+\]/.test(form.title + form.body + form.options.join(''));
   const isActive = existing.data?.item.status === 'active';
+  const isPending = existing.data?.item.status === 'pending';
+  const policy = policies.data?.items.find((p) => p.category === form.category);
+  const needsApproval = !!policy?.enabled && policy.steps.length > 0;
 
   const save = async (publish: boolean) => {
     setBusy(publish ? 'publish' : 'draft');
@@ -274,7 +278,15 @@ export function AnnouncementEditor() {
       const r = id
         ? await api<{ item: Announcement }>(`/api/announcements/${id}`, { method: 'PATCH', body })
         : await api<{ item: Announcement }>('/api/announcements', { body });
-      toast(publish ? (r.item.status === 'scheduled' ? 'Duyuru planlandı' : 'Duyuru yayınlandı — ekranlara gidiyor') : 'Kaydedildi');
+      const w = (r as { warning?: string }).warning;
+      if (w) toast(w, r.item.status !== 'pending');
+      else
+        toast(
+          !publish ? 'Kaydedildi'
+            : r.item.status === 'pending' ? 'Onaya gönderildi — onaycılar bilgilendirildi'
+            : r.item.status === 'scheduled' ? 'Duyuru planlandı'
+            : 'Duyuru yayınlandı — ekranlara gidiyor',
+        );
       nav(`/duyurular/${r.item.id}`);
     } catch (e) {
       setError((e as Error).message);
@@ -497,15 +509,17 @@ export function AnnouncementEditor() {
 
           <Card className="flex flex-wrap items-center justify-end gap-3 p-4 sm:p-5" delay={0.2}>
             <span className="mr-auto pl-2 text-[13px] text-slate-500 dark:text-slate-400">
-              {schedule && form.startsAt ? 'Seçilen zamanda otomatik yayınlanır.' : 'Yayınla dediğinizde saniyeler içinde ekranlarda.'}
+              {needsApproval
+                ? `${policy?.steps.map((s) => s.name).join(' → ')} onayından sonra ${schedule && form.startsAt ? 'seçilen zamanda' : 'hemen'} yayınlanır.`
+                : schedule && form.startsAt ? 'Seçilen zamanda otomatik yayınlanır.' : 'Yayınla dediğinizde saniyeler içinde ekranlarda.'}
             </span>
-            {(!id || existing.data?.item.status === 'draft') && (
+            {(!id || existing.data?.item.status === 'draft' || existing.data?.item.status === 'rejected') && (
               <Button icon={Save} loading={busy === 'draft'} disabled={!!busy || !form.title.trim()} onClick={() => save(false)}>
                 Taslak kaydet
               </Button>
             )}
             <Button variant="primary" size="lg" icon={schedule ? CalendarClock : Rocket} loading={busy === 'publish'} disabled={!!busy || !form.title.trim()} onClick={() => save(true)}>
-              {isActive ? 'Kaydet ve güncelle' : schedule ? 'Planla' : 'Yayınla'}
+              {needsApproval && !isPending ? (isActive ? 'Kaydet (yeniden onaya gider)' : 'Onaya gönder') : isActive ? 'Kaydet ve güncelle' : schedule ? 'Planla' : 'Yayınla'}
             </Button>
           </Card>
         </div>

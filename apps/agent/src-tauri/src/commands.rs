@@ -71,10 +71,10 @@ pub fn safety(app: AppHandle, emergency_id: String, status: String, note: Option
     Ok(())
 }
 
-/// Çalışan bildirimi: it_help | near_miss. Dönüş: şu an bağlı mı (değilse kuyrukta bekler).
+/// Çalışan bildirimi (IT'ye bildir). Dönüş: şu an bağlı mı (değilse kuyrukta bekler).
 #[tauri::command]
-pub fn send_report(app: AppHandle, kind: String, text: String, anonymous: bool) -> Result<bool, String> {
-    if !matches!(kind.as_str(), "it_help" | "near_miss") {
+pub fn send_report(app: AppHandle, kind: String, text: String) -> Result<bool, String> {
+    if kind != "it_help" {
         return Err("geçersiz bildirim türü".into());
     }
     let text = clip(&text, REPORT_MAX_CHARS);
@@ -82,7 +82,7 @@ pub fn send_report(app: AppHandle, kind: String, text: String, anonymous: bool) 
         return Err("Lütfen kısa bir açıklama yazın.".into());
     }
     let ag = agent(&app);
-    ag.send(json!({ "t": "report", "kind": kind, "text": text, "anonymous": anonymous && kind == "near_miss" }));
+    ag.send(json!({ "t": "report", "kind": kind, "text": text }));
     let online = lock(&ag.inner).status.connected();
     Ok(online)
 }
@@ -145,7 +145,7 @@ pub fn fit_height(window: WebviewWindow, h: f64) {
 /// Tepsi pencerelerini kapat (bindirme pencereleri kapatılamaz).
 #[tauri::command]
 pub fn close_window(window: WebviewWindow) {
-    if matches!(window.label(), "list" | "report-it" | "report-nm" | "about") {
+    if matches!(window.label(), "list" | "report-it" | "about") {
         let _ = window.destroy();
     }
 }

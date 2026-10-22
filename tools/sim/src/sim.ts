@@ -199,8 +199,6 @@ agents.forEach((a, i) => setTimeout(() => a.connect(), i * 40));
 // Birkaç çalışan bildirimi
 setTimeout(() => {
   agents[1]?.send({ t: 'report', kind: 'it_help', text: 'Yazıcı kağıt sıkıştırıyor ve yazdırma kuyruğu takılı kalıyor.' });
-  agents[4]?.send({ t: 'report', kind: 'near_miss', text: 'Forklift yaya yolundan geçerken yavaşlamadı, yaya son anda kenara çekildi.', anonymous: true });
-  agents[7]?.send({ t: 'report', kind: 'near_miss', text: 'Depo rafında sabitlenmemiş koliler var, düşme riski.' });
 }, 4000);
 
 setInterval(() => {

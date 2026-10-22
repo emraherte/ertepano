@@ -249,6 +249,75 @@ const MIGRATIONS: string[] = [
   ALTER TABLE devices ADD COLUMN cert_subject TEXT;
   ALTER TABLE devices ADD COLUMN cert_valid_to TEXT;
   `,
+  // 9: ramak kala kaldırıldı; personel listesi (PC'si olmayanlar, sicil, kaynak); duyuru onay akışı ve vekalet
+  `
+  DELETE FROM reports WHERE kind = 'near_miss';
+  UPDATE special_days SET message = 'Güvenli çalışma hepimizin sorumluluğu. Bir tehlike görürseniz İSG ekibine haber verin.'
+    WHERE message LIKE '%Ramak kala%';
+
+  CREATE TABLE employees_v2 (
+    id TEXT PRIMARY KEY,
+    username TEXT UNIQUE COLLATE NOCASE,
+    employee_no TEXT UNIQUE COLLATE NOCASE,
+    full_name TEXT NOT NULL,
+    birth_md TEXT,
+    start_date TEXT,
+    department TEXT,
+    location TEXT,
+    celebrate INTEGER NOT NULL DEFAULT 1,
+    source TEXT NOT NULL DEFAULT 'manual',
+    updated_at TEXT
+  );
+  INSERT INTO employees_v2(id, username, full_name, birth_md, start_date, department, location, celebrate, source, updated_at)
+    SELECT lower(hex(randomblob(16))), username, full_name, birth_md, start_date, department, location, celebrate, 'csv',
+           strftime('%Y-%m-%dT%H:%M:%fZ', 'now') FROM employees;
+  DROP TABLE employees;
+  ALTER TABLE employees_v2 RENAME TO employees;
+  CREATE INDEX employees_birth ON employees(birth_md);
+
+  ALTER TABLE announcements ADD COLUMN approval_round INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE announcements ADD COLUMN approval_step INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE announcements ADD COLUMN submitted_by TEXT;
+  ALTER TABLE announcements ADD COLUMN submitted_at TEXT;
+  ALTER TABLE announcements ADD COLUMN rejected_reason TEXT;
+
+  CREATE TABLE approval_policies (
+    category TEXT PRIMARY KEY,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    steps TEXT NOT NULL DEFAULT '[]',
+    allow_self INTEGER NOT NULL DEFAULT 0,
+    updated_by TEXT,
+    updated_at TEXT
+  );
+
+  CREATE TABLE approvals (
+    id TEXT PRIMARY KEY,
+    announcement_id TEXT NOT NULL REFERENCES announcements(id) ON DELETE CASCADE,
+    round INTEGER NOT NULL,
+    step INTEGER NOT NULL,
+    user_id TEXT NOT NULL,
+    username TEXT NOT NULL,
+    on_behalf_of TEXT,
+    decision TEXT NOT NULL,
+    note TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX approvals_ann ON approvals(announcement_id, round, step);
+
+  CREATE TABLE delegations (
+    id TEXT PRIMARY KEY,
+    from_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    to_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    starts_at TEXT NOT NULL,
+    ends_at TEXT NOT NULL,
+    reason TEXT,
+    created_by TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    revoked_at TEXT,
+    revoked_by TEXT
+  );
+  CREATE INDEX delegations_to ON delegations(to_user_id, starts_at, ends_at);
+  `,
 ];
 
 function migrate() {

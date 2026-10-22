@@ -180,7 +180,7 @@ function onSafety(c: Conn, emergencyId: string, status: 'safe' | 'help', note?: 
   if (e.announcement_id) onAck(c, e.announcement_id, 'acked');
 }
 
-function onReport(c: Conn, kind: 'it_help' | 'near_miss', text: string, anonymous: boolean) {
+function onReport(c: Conn, kind: 'it_help', text: string) {
   const d = getDevice(c.deviceId) as (DeviceRow & Record<string, unknown>) | undefined;
   if (!d || d.status !== 'approved' || !text.trim()) return;
   if (!hasModule(REPORT_MODULE[kind])) return; // modül lisanslı değil
@@ -189,20 +189,16 @@ function onReport(c: Conn, kind: 'it_help' | 'near_miss', text: string, anonymou
   if (times.length >= REPORTS_PER_HOUR) return;
   times.push(Date.now());
   reportTimes.set(d.id, times);
-  // Anonim ramak kala: kişi ve cihaz saklanmaz, sadece lokasyon (İSG analizi için) kalır.
-  const anon = kind === 'near_miss' && anonymous;
-  const summary = anon
-    ? null
-    : JSON.stringify({
-        hostname: d.hostname, ip: d.ip, os: d.os, cpuModel: d.cpu_model, cpuLoad: d.cpu_load,
-        ramTotalMb: d.ram_total_mb, ramFreeMb: d.ram_free_mb, diskTotalGb: d.disk_total_gb, diskFreeGb: d.disk_free_gb,
-        uptimeSec: d.uptime_sec, agentVersion: d.agent_version,
-      });
+  const summary = JSON.stringify({
+    hostname: d.hostname, ip: d.ip, os: d.os, cpuModel: d.cpu_model, cpuLoad: d.cpu_load,
+    ramTotalMb: d.ram_total_mb, ramFreeMb: d.ram_free_mb, diskTotalGb: d.disk_total_gb, diskFreeGb: d.disk_free_gb,
+    uptimeSec: d.uptime_sec, agentVersion: d.agent_version,
+  });
   const now = nowIso();
   db.prepare(
     `INSERT INTO reports(id, kind, text, anonymous, device_id, user_login, device_summary, location, status, created_at, updated_at)
      VALUES(?,?,?,?,?,?,?,?,'open',?,?)`,
-  ).run(uuid(), kind, text.slice(0, 2000), anon ? 1 : 0, anon ? null : d.id, anon ? null : d.last_user, summary, d.location, now, now);
+  ).run(uuid(), kind, text.slice(0, 2000), 0, d.id, d.last_user, summary, d.location, now, now);
 }
 
 const agentMsg = z.discriminatedUnion('t', [
@@ -210,7 +206,7 @@ const agentMsg = z.discriminatedUnion('t', [
   z.object({ t: z.literal('telemetry'), data: telemetrySchema }),
   z.object({ t: z.literal('ack'), id: z.string(), action: z.enum(['seen', 'read', 'acked', 'dismissed', 'answered']), answer: z.string().optional() }),
   z.object({ t: z.literal('safety'), emergencyId: z.string(), status: z.enum(['safe', 'help']), note: z.string().optional() }),
-  z.object({ t: z.literal('report'), kind: z.enum(['it_help', 'near_miss']), text: z.string().max(4000), anonymous: z.boolean().optional() }),
+  z.object({ t: z.literal('report'), kind: z.enum(['it_help']), text: z.string().max(4000) }),
   z.object({ t: z.literal('pong') }),
 ]);
 
@@ -366,7 +362,7 @@ export async function agentRoutes(app: FastifyInstance) {
           onSafety(conn, msg.emergencyId, msg.status, msg.note);
           break;
         case 'report':
-          onReport(conn, msg.kind, msg.text, !!msg.anonymous);
+          onReport(conn, msg.kind, msg.text);
           break;
         default:
           break;
