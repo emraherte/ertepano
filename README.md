@@ -6,6 +6,7 @@ KVKK sınırları içinde **IT envanteri** toplar. ErtePals'ın şeffaf/click-th
 
 - Şartname: [docs/SARTNAME-v2.md](docs/SARTNAME-v2.md) (v1'e göre değişiklikler en üstte)
 - Ajan ⇄ sunucu sözleşmesi: [docs/PROTOKOL.md](docs/PROTOKOL.md)
+- **Bir kuruma kurulum (hesaplar, portlar, KVKK metinleri): [docs/KURULUM.md](docs/KURULUM.md)**
 
 ## Depo
 
@@ -53,13 +54,13 @@ Depo kökünde `.env` dosyası varsa otomatik okunur (örnek: [.env.example](.en
 
 ## Active Directory (LDAP) girişi
 
-`.env` içinde `LDAP_URL` ve `LDAP_BASE_DN` verildiğinde açılır. Çalışanlar Windows kullanıcı adıyla (`ad.soyad`, `SIRKET\ad.soyad` veya
+Panel → **Sistem & güvenlik → Active Directory** (ya da kurulum sihirbazı) üzerinden girilir: değerler kaydetmeden önce denenir, servis hesabı parolası şifreli saklanır. `.env` içindeki `LDAP_*` değerleri yalnızca panelde ayar yoksa kullanılır. AD nesnelerini (OU, 5 grup, ayrıcalıksız `svc-ertepano`) `deploy/ad/New-ErtePanoAdObjects.ps1` oluşturur. Çalışanlar Windows kullanıcı adıyla (`ad.soyad`, `SIRKET\ad.soyad` veya
 `ad.soyad@sirket.local`) girer; panel hesabı ilk girişte otomatik oluşur ve **rolü her girişte AD grubundan** yeniden hesaplanır
 (`LDAP_GROUP_ADMIN / IT / ISG / IK / VIEWER`; birden fazla gruptaysa en yetkili rol). Grup DN'i verilirse iç içe gruplar da çözülür.
 
 - Servis hesabıyla arama → kullanıcının kendi parolasıyla bağlanma; boş parola ve devre dışı AD hesabı reddedilir, filtre girdisi kaçışlanır.
 - **Yerel hesaplar her zaman çalışır** (ör. `admin`): AD'ye ulaşılamazsa yönetici yine girebilir.
-- Panel → **Sistem & LDAP**: yapılandırma özeti, bağlantı testi, rol gruplarının varlığı ve bir kullanıcının hangi rolle gireceği.
+- Bağlantı testi: rol gruplarının varlığı ve bir kullanıcının hangi rolle gireceği.
 - AD kullanıcısının rolü/parolası panelden değiştirilemez; yalnızca erişimi kapatılabilir.
 
 ## İki faktörlü doğrulama (2FA)
@@ -95,6 +96,21 @@ Microsoft / Google Authenticator ile TOTP (RFC 6238). Parola doğruysa 5 dakikal
   ```
 
   Müşteri: Panel → **Lisans ve modüller** → dosyayı yükle. Modüller yeniden kurulum gerekmeden anında açılır.
+
+## Uzaktan destek (çalışan onaylı, KVKK uyumlu)
+
+IT modülünde Cihazlar → cihaz → **Uzaktan destek**. Teknisyen neden yazar; istek sunucu anahtarıyla imzalanıp ajana gider ve
+**çalışanın ekranında onay penceresi** açılır (yalnızca görüntüleme / kontrol). Onaylanırsa ekran tek kullanımlık jetonla sunucu
+üzerinden aktarılır (**kaydedilmez**), çalışan kırmızı çerçeveyi görür ve istediği an kontrolü geri alır ya da bitirir.
+Gözetimsiz erişim yoktur. Teknisyende 2FA zorunlu (politika), en uzun süre sınırlı, her oturum denetim kaydında ve
+**Uzaktan destek** geçmişinde (kim, hangi cihaz, neden, kim onayladı, süre). Politika: Sistem & güvenlik.
+
+## Kurulum sihirbazı, kontrol listesi, yedek
+
+İlk girişte yönetici `/kurulum` sihirbazına yönlenir: kurum adı → 2FA ve uzaktan destek politikası → Active Directory → lisans →
+ajan kayıt anahtarı → **güvenlik kontrol listesi** (ilk parola, 2FA, demo hesaplar, HTTPS, veri klasörü izinleri, yedek...).
+Sunucu her gün veritabanı + anahtarları `data/backups`'a yedekler (son 14). Windows Server kurulumu tek betik:
+`deploy/server/Install-ErtePanoServer.ps1 -PublicUrl https://pano.sirket.local -PfxPath pano.pfx` (NETWORK SERVICE, doğrudan HTTPS).
 
 ## Kim ne yapar?
 

@@ -237,6 +237,28 @@ const MIGRATIONS: string[] = [
     WHEN OLD.created_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-365 days')
     BEGIN SELECT RAISE(ABORT, 'audit_log: son 1 yılın kaydı silinemez'); END;
   `,
+  // 6: uzaktan destek oturumları (ekran görüntüsü saklanmaz; yalnızca kim, ne zaman, neden, ne kadar)
+  `
+  CREATE TABLE support_sessions (
+    id TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+    technician_id TEXT NOT NULL,
+    technician TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    allow_control INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    user_login TEXT,
+    relay_token_hash TEXT,
+    requested_at TEXT NOT NULL,
+    responded_at TEXT,
+    started_at TEXT,
+    ended_at TEXT,
+    ended_by TEXT,
+    end_reason TEXT
+  );
+  CREATE INDEX support_device ON support_sessions(device_id, requested_at);
+  `,
 ];
 
 function migrate() {

@@ -24,6 +24,8 @@ import {
   BadgeCheck,
   Lock,
   Sparkles,
+  ScreenShare,
+  Rocket,
   Users as UsersIcon,
   X,
 } from 'lucide-react';
@@ -49,6 +51,8 @@ import { Account } from './pages/Account';
 import { SystemSettings } from './pages/SystemSettings';
 import { Kiosk } from './pages/Kiosk';
 import { LicensePage } from './pages/License';
+import { SupportHistory, SupportSession } from './pages/RemoteSupport';
+import { SetupWizard } from './pages/SetupWizard';
 import { LicenseProvider, ModuleLocked, useLicense } from './components/license';
 
 interface NavItem {
@@ -101,6 +105,8 @@ function Shell(props: { user: User; logout: () => void }) {
 
 function ShellInner({ user, logout }: { user: User; logout: () => void }) {
   const { license, any, categoriesFor } = useLicense();
+  const setup = useApi<{ completed: boolean }>(user.role === 'admin' ? '/api/setup' : null);
+  const authCfg = useApi<{ org: string | null }>('/api/auth/config');
   const location = useLocation();
   const nav = useNavigate();
   const { dark, toggle } = useTheme();
@@ -129,6 +135,7 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
       items: [
         { to: '/bildirimler', label: 'Çalışan bildirimleri', icon: Inbox, roles: ['it', 'isg'], count: openReports, modules: ['it', 'isg'] },
         { to: '/cihazlar', label: 'Cihazlar', icon: Monitor, roles: ['it'], count: dash.data?.devices.pending },
+        { to: '/destek', label: 'Uzaktan destek', icon: ScreenShare, roles: ['it'], modules: ['it'] },
         { to: '/takvim', label: 'Takvim & kutlamalar', icon: CalendarHeart, roles: ['ik'] },
       ],
     },
@@ -140,6 +147,7 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
         { to: '/denetim', label: 'Denetim kaydı', icon: ScrollText, roles: ['admin'] },
         { to: '/sistem', label: 'Sistem & güvenlik', icon: Settings2, roles: ['admin'] },
         { to: '/lisans', label: 'Lisans ve modüller', icon: BadgeCheck, roles: ['admin'] },
+        { to: '/kurulum', label: 'Kurulum & kontrol', icon: Rocket, roles: ['admin'] },
         { to: '/hesabim', label: 'Hesabım', icon: UserCog },
       ],
     },
@@ -167,7 +175,7 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
         </div>
         <div>
           <div className="text-[17px] font-bold tracking-tight text-slate-900 dark:text-white">ErtePano</div>
-          <div className="text-[11px] font-medium text-slate-400">İK · İSG · IT</div>
+          <div className="max-w-[170px] truncate text-[11px] font-medium text-slate-400">{authCfg.data?.org ?? 'İK · İSG · IT'}</div>
         </div>
       </Link>
 
@@ -344,7 +352,8 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
               transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
             >
               <Routes location={location}>
-                <Route path="/" element={<Dashboard />} />
+                <Route path="/" element={setup.data && !setup.data.completed ? <Navigate to="/kurulum" replace /> : <Dashboard />} />
+                {can(['admin']) && <Route path="/kurulum" element={<SetupWizard />} />}
                 <Route path="/duyurular" element={<Announcements />} />
                 <Route path="/duyurular/yeni" element={<AnnouncementEditor />} />
                 <Route path="/duyurular/:id" element={<AnnouncementDetail />} />
@@ -352,6 +361,8 @@ function ShellInner({ user, logout }: { user: User; logout: () => void }) {
                 <Route path="/acil" element={any(['isg', 'it']) ? <Emergency canAct={EMERGENCY_ROLES.includes(user.role)} onChange={em.reload} /> : <ModuleLocked modules={['isg']} />} />
                 {can(['it', 'isg']) && <Route path="/bildirimler" element={any(['it', 'isg']) ? <Reports /> : <ModuleLocked modules={user.role === 'isg' ? ['isg'] : ['it']} />} />}
                 {can(['it']) && <Route path="/cihazlar" element={<Devices />} />}
+                {can(['it']) && <Route path="/destek" element={any(['it']) ? <SupportHistory /> : <ModuleLocked modules={['it']} />} />}
+                {can(['it']) && <Route path="/destek/:id" element={any(['it']) ? <SupportSession /> : <ModuleLocked modules={['it']} />} />}
                 {can(['ik']) && <Route path="/takvim" element={<CalendarPage />} />}
                 {can(['it']) && <Route path="/ajan-kurulumu" element={<AgentSetup />} />}
                 {can(['admin']) && <Route path="/kullanicilar" element={<Users />} />}

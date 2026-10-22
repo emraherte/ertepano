@@ -13,6 +13,7 @@ import { onlineCount, syncAll } from '../hub.js';
 import { hashPassword, newPassword, randomToken, uuid, verifyPassword } from '../security.js';
 import { localToday, runDailyAutomation } from '../scheduler.js';
 import { ldapTest } from '../ldap.js';
+import { clearLdapSettings, ldapSettings, saveLdapSettings, settingsFromInput } from '../ldap-settings.js';
 import { hasModule, invalidateLicense, licenseInfo, parseLicense, publishCategories, REPORT_MODULE, requireModule, serverId } from '../license.js';
 import type { ReportKind } from '@ertepano/shared';
 import { deviceAlerts } from './devices.js';
@@ -347,12 +348,28 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // ---- Active Directory / LDAP (yapılandırma ortam değişkenlerinden; panel salt-okur + test) ----
+  // ---- Active Directory / LDAP: panelden ayarlanır (servis parolası şifreli saklanır) ya da .env ----
+  const ldapInput = z.object({
+    enabled: z.boolean(),
+    url: z.string().trim().regex(/^ldaps?:\/\/[^\s/]+(:\d+)?\/?$/, 'Adres ldap://sunucu:389 ya da ldaps://sunucu:636 biçiminde olmalı'),
+    baseDn: z.string().trim().min(3).max(500),
+    bindDn: z.string().trim().max(500),
+    bindPassword: z.string().max(256).optional(),
+    userFilter: z.string().trim().max(500).refine((v) => !v || v.includes('{{username}}'), 'Filtre {{username}} içermeli').optional(),
+    domain: z.string().trim().max(64).nullable().optional(),
+    startTls: z.boolean(),
+    rejectUnauthorized: z.boolean(),
+    caPem: z.string().trim().max(20_000).refine((v) => !v || v.includes('BEGIN CERTIFICATE'), 'PEM biçiminde sertifika yapıştırın').nullable().optional(),
+    groups: z.object({ admin: z.string().max(500).optional(), it: z.string().max(500).optional(), isg: z.string().max(500).optional(), ik: z.string().max(500).optional(), viewer: z.string().max(500).optional() }),
+    defaultRole: z.enum(ROLES).nullable(),
+  });
+
   app.get('/api/settings/ldap', { preHandler: requireRole('admin') }, async () => {
-    const l = config.ldap;
-    const counts = db.prepare("SELECT auth_source s, COUNT(*) c FROM users GROUP BY auth_source").all() as { s: string; c: number }[];
+    const l = ldapSettings();
+    const counts = db.prepare('SELECT auth_source s, COUNT(*) c FROM users GROUP BY auth_source').all() as { s: string; c: number }[];
     return {
       enabled: l.enabled,
+      source: l.source,
       url: l.url ?? null,
       baseDn: l.baseDn ?? null,
       bindDn: l.bindDn ?? null,
@@ -361,6 +378,7 @@ export async function adminRoutes(app: FastifyInstance) {
       domain: l.domain,
       startTls: l.startTls,
       caFile: l.caFile ?? null,
+      caPemSet: !!l.caPem,
       rejectUnauthorized: l.rejectUnauthorized,
       groups: l.groups,
       defaultRole: l.defaultRole,
@@ -368,11 +386,30 @@ export async function adminRoutes(app: FastifyInstance) {
     };
   });
 
+  /** Kayıtlı ayarla ya da (gövdede config varsa) KAYDETMEDEN önce yeni ayarla test */
   app.post('/api/settings/ldap/test', { preHandler: requireRole('admin') }, async (req) => {
-    const b = z.object({ username: z.string().trim().max(128).optional() }).parse(req.body ?? {});
-    const result = await ldapTest(b.username || undefined);
-    audit(req.user!.username, 'ldap_tested', 'settings', null, { ok: result.ok, username: b.username }, req.ip);
+    const b = z.object({ username: z.string().trim().max(128).optional(), config: ldapInput.optional() }).parse(req.body ?? {});
+    const result = await ldapTest(b.username || undefined, b.config ? settingsFromInput({ ...b.config, enabled: true }) : undefined);
+    audit(req.user!.username, 'ldap_tested', 'settings', null, { ok: result.ok, username: b.username, unsaved: !!b.config }, req.ip);
     return result;
+  });
+
+  app.put('/api/settings/ldap', { preHandler: requireRole('admin') }, async (req, reply) => {
+    const b = ldapInput.parse(req.body);
+    if (b.enabled) {
+      // açılacaksa önce bağlantı denenir: yanlış ayarla kimse kilitlenmesin (yerel yönetici hesabı her durumda çalışır)
+      const t = await ldapTest(undefined, settingsFromInput(b));
+      if (!t.ok) return reply.code(400).send({ error: `Bağlantı denemesi başarısız: ${t.message}`, test: t });
+    }
+    saveLdapSettings(b);
+    audit(req.user!.username, 'ldap_settings_saved', 'settings', null, { ...b, bindPassword: b.bindPassword ? '(değişti)' : undefined, caPem: b.caPem ? '(var)' : undefined }, req.ip);
+    return { ok: true };
+  });
+
+  app.delete('/api/settings/ldap', { preHandler: requireRole('admin') }, async (req) => {
+    clearLdapSettings();
+    audit(req.user!.username, 'ldap_settings_cleared', 'settings', null, undefined, req.ip);
+    return { ok: true };
   });
 
   // ---- Lisans ----

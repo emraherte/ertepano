@@ -61,6 +61,11 @@ export function registerHardening(app: FastifyInstance) {
  */
 export function lockDataDir() {
   if (process.platform !== 'win32' || process.env.DATA_DIR_ACL === 'off') return;
+  // kurulum betiği (deploy/server/Install-ErtePanoServer.ps1) izinleri NETWORK SERVICE için kendisi ayarladı
+  if (process.env.DATA_DIR_ACL === 'managed') {
+    setSetting('data_acl_v1', config.dataDir);
+    return;
+  }
   if (getSetting('data_acl_v1') === config.dataDir) return;
   const user = process.env.USERDOMAIN && process.env.USERNAME ? `${process.env.USERDOMAIN}\\${process.env.USERNAME}` : process.env.USERNAME;
   if (!user || !fs.existsSync(config.dataDir)) return;

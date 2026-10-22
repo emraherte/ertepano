@@ -28,8 +28,11 @@ export const config = {
   dataDir: path.resolve(process.env.DATA_DIR ?? path.join(root, 'data')),
   panelDist: path.join(root, 'apps', 'panel', 'dist'),
   sessionHours: int(process.env.SESSION_HOURS, 12),
-  /** Çerezleri yalnızca HTTPS'te gönder (üretimde reverse proxy arkasında true yapın). */
-  secureCookies: process.env.SECURE_COOKIES === 'true',
+  /** Doğrudan HTTPS (IIS/proxy gerekmez): kurumsal iç CA'dan alınmış .pfx */
+  tlsPfx: env('TLS_PFX_PATH'),
+  tlsPfxPassword: process.env.TLS_PFX_PASSWORD ?? '',
+  /** Çerezleri yalnızca HTTPS'te gönder; TLS_PFX_PATH verilirse kendiliğinden açılır */
+  secureCookies: process.env.SECURE_COOKIES === 'true' || !!env('TLS_PFX_PATH'),
   /**
    * Önünde reverse proxy (IIS/nginx) varsa onun IP'si/CIDR'ı (virgülle). Boşsa X-Forwarded-For'a güvenilmez —
    * aksi halde istemci sahte IP yazarak hız sınırlarını atlatabilir ve denetim kaydına sahte IP düşürebilir.

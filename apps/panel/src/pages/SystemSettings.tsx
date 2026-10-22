@@ -4,6 +4,8 @@ import { Building2, CheckCircle2, CircleSlash, KeyRound, Network, PlugZap, Searc
 import { ROLE_LABELS, type Role } from '@ertepano/shared';
 import { api, useApi } from '../api';
 import { SecurityPolicyCard } from '../components/SecurityPolicyCard';
+import { LdapForm } from '../components/LdapForm';
+import { SecurityChecklist } from '../components/SecurityChecklist';
 import { Badge, Button, Callout, Card, CardHeader, cn, Field, IconTile, Input, KeyValue, PageHeader, PageSkeleton, StatCard, useToast } from '../ui';
 
 interface LdapSettings {
@@ -30,24 +32,12 @@ interface TestResult {
   user?: { found: boolean; dn?: string; fullName?: string; role?: Role | null; disabled?: boolean };
 }
 
-const ENV_SAMPLE = `# .env (depo kökü) — sunucuyu yeniden başlatın
-LDAP_URL=ldaps://dc01.sirket.local:636
-LDAP_BASE_DN=DC=sirket,DC=local
-LDAP_BIND_DN=CN=svc-ertepano,OU=Servis,DC=sirket,DC=local
-LDAP_BIND_PASSWORD=********
-LDAP_DOMAIN=SIRKET
-LDAP_GROUP_ADMIN=ErtePano-Yonetici
-LDAP_GROUP_IT=ErtePano-IT
-LDAP_GROUP_ISG=ErtePano-ISG
-LDAP_GROUP_IK=ErtePano-IK
-LDAP_GROUP_VIEWER=ErtePano-Izleyici
-# LDAP_CA_FILE=C:\\ErtePano\\kurumsal-ca.pem`;
 
 const ROLE_ORDER: Role[] = ['admin', 'isg', 'it', 'ik', 'viewer'];
 
 export function SystemSettings() {
   const toast = useToast();
-  const { data } = useApi<LdapSettings>('/api/settings/ldap');
+  const { data, reload } = useApi<LdapSettings>('/api/settings/ldap');
   const [username, setUsername] = useState('');
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<TestResult | null>(null);
@@ -73,7 +63,8 @@ export function SystemSettings() {
         description="Active Directory ile tek oturum: çalışanlar Windows hesaplarıyla girer, rolleri AD gruplarından gelir."
       />
 
-      <div className="mb-6">
+      <div className="mb-6 grid gap-6 xl:grid-cols-2 [&>*]:min-w-0">
+        <SecurityChecklist compact />
         <SecurityPolicyCard />
       </div>
 
@@ -98,28 +89,9 @@ export function SystemSettings() {
             )}
           </div>
 
-          {data.enabled ? (
-            <KeyValue
-              className="relative mt-8"
-              items={[
-                ['Temel DN', <span className="font-mono text-[12px]">{data.baseDn}</span>],
-                ['Servis hesabı', data.bindDn ? <span className="font-mono text-[12px]">{data.bindDn}</span> : <span className="text-amber-600">Anonim (önerilmez)</span>],
-                ['Servis parolası', data.bindPasswordSet ? 'Tanımlı' : '—'],
-                ['Kullanıcı filtresi', <span className="font-mono text-[12px] break-all">{data.userFilter}</span>],
-                ['Şifreleme', data.url?.startsWith('ldaps://') ? 'LDAPS (TLS)' : data.startTls ? 'StartTLS' : <span className="text-amber-600">Şifresiz — üretimde LDAPS kullanın</span>],
-                ['Sertifika', data.caFile ? data.caFile : data.rejectUnauthorized ? 'Windows/Node güven deposu' : <span className="text-rose-600">Doğrulama kapalı</span>],
-                ['Varsayılan rol', data.defaultRole ? ROLE_LABELS[data.defaultRole] : 'Yok — gruba üye değilse giriş reddedilir'],
-              ]}
-            />
-          ) : (
-            <div className="relative mt-8 space-y-4">
-              <Callout tone="info" title="Nasıl açılır?">
-                Aşağıdaki değişkenleri depo kökündeki <code className="font-mono">.env</code> dosyasına yazın (örnek: <code className="font-mono">.env.example</code>) ve sunucuyu yeniden başlatın.
-                Parolalar veritabanına değil yalnızca sunucu ortamına yazılır.
-              </Callout>
-              <pre className="overflow-x-auto rounded-2xl border border-slate-200/60 bg-slate-950 p-5 font-mono text-[12px] leading-relaxed text-emerald-200 dark:border-white/10">{ENV_SAMPLE}</pre>
-            </div>
-          )}
+          <div className="relative mt-8">
+            <LdapForm onSaved={reload} />
+          </div>
         </Card>
 
         <div className="grid gap-6 xl:col-span-4">

@@ -138,3 +138,65 @@ Arayüz → hizmet:
 ```
 Hizmet yalnızca bu üç türü sunucuya iletir. Arayüz `SignedItem` imzalarını kendisi de doğrular (anahtar: yapılandırmadaki `publicKey`, yoksa hizmetin bildirdiği); boruyu taklit eden bir süreç sahte duyuru gösteremez.
 Hizmet yoksa (geliştirme) arayüz sunucuya kendisi bağlanır (§2–3).
+
+## 7. Uzaktan destek (çalışanın onayıyla)
+
+İlke: **her bağlantı çalışanın ekranında açık onayla başlar**, çalışan istediği an bitirir, oturum boyunca ekranda görünür bir
+uyarı durur, **ekran kaydedilmez** (sunucu görüntüyü yalnızca aktarır), her adım denetim kaydına yazılır. Gözetimsiz erişim yok.
+
+### 7.1 İstek (sunucu → ajan, mevcut `/ws/agent` üzerinden)
+```json
+{ "t": "support_request", "req": SignedItem }
+```
+`req.payload` (Ed25519 imzalı, §4 ile aynı anahtar) — ajan imzayı doğrular, `type` alanı `"support_request"` olmayan yükü reddeder:
+```json
+{
+  "type": "support_request",
+  "sessionId": "uuid",
+  "technician": "Can Öztürk",
+  "technicianUser": "can.ozturk",
+  "reason": "Yazıcı sürücüsü sorunu (talep #123)",
+  "mode": "view" | "control",
+  "relayToken": "hex64",            // görüntü bağlantısı için tek kullanımlık jeton
+  "maxMinutes": 60,
+  "issuedAt": "…", "expiresAt": "…" // onay penceresi en fazla 90 sn açık kalır
+}
+```
+Hizmet bunu boru üzerinden **konsol oturumundaki** arayüze `{ "t": "support_request", "req": SignedItem }` olarak iletir
+(oturum yoksa ya da ekran kilitliyse hemen `accepted:false, reason:"no_user"` döner).
+`{ "t": "support_end", "sessionId": "…" }` — sunucu oturumu bitirdi (teknisyen kapattı / süre doldu); arayüz her şeyi kapatır.
+
+### 7.2 Onay (arayüz)
+Her monitörün üstünde, odak alan bir pencere: "**{technician}** (IT) ekranınızı {görmek | görmek ve kontrol etmek} istiyor.
+Neden: {reason}. Onay vermeden önce gizli bilgileri (parola, kişisel yazışma) kapatın." — **[İzin ver] [Reddet]**, 60 sn geri sayım
+(süre dolarsa Reddet). `mode: "control"` ise "Yalnızca görüntülemeye izin ver" seçeneği de vardır.
+
+Yanıt arayüz → hizmet → sunucu (borudaki `out` mesajına eklenen yeni tür):
+```json
+{ "t": "support_response", "sessionId": "…", "accepted": true, "allowControl": true, "user": "ahmet.yilmaz" }
+```
+
+### 7.3 Görüntü bağlantısı (arayüz → sunucu, doğrudan)
+Onaydan sonra arayüz **kendisi** `GET {serverUrl}/ws/support/agent` WebSocket'ini açar (görüntü boruya girmez). İlk mesaj:
+```json
+{ "t": "hello", "sessionId": "…", "relayToken": "…" }
+```
+Sonra:
+- Metin `{ "t": "screen", "w": 1920, "h": 1080 }` — çözünürlük/monitör değişince (birincil monitör, fiziksel px).
+- **İkili** mesaj = bir JPEG kare (en fazla 1600 px genişliğe ölçeklenmiş, kalite ~60, saniyede en çok 8 kare; ekran değişmediyse gönderme).
+- Metin `{ "t": "ended", "by": "user" }` — çalışan "Bitir"e bastı.
+
+Sunucu → arayüz (teknisyenden, metin):
+```json
+{ "t": "input", "kind": "move" | "down" | "up" | "wheel" | "keydown" | "keyup",
+  "x": 0.0-1.0, "y": 0.0-1.0, "button": 0 | 1 | 2, "dy": -120, "code": "KeyA", "key": "a" }
+{ "t": "control", "allowed": false }        // çalışan kontrolü geri aldı ya da mod "view"
+{ "t": "end" }
+```
+Arayüz girdiyi yalnızca `allowControl` doğruysa ve çalışan kontrolü geri almadıysa `SendInput` ile uygular (x,y birincil monitöre göre).
+Ctrl+Alt+Del, UAC güvenli masaüstü ve kilit ekranı kapsam dışıdır (Windows bunları zaten engeller).
+
+### 7.4 Oturum sırasında çalışanın ekranında
+- Tüm monitörlerin kenarında 4 px kırmızı çerçeve (click-through) ve üst ortada sürüklenebilir küçük şerit:
+  "● Uzaktan destek: Can Öztürk · 03:12 · [Kontrolü kapat] [Bitir]".
+- `maxMinutes` dolunca arayüz kendiliğinden bitirir.

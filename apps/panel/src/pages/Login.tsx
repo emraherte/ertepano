@@ -71,14 +71,14 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [ldap, setLdap] = useState<{ enabled: boolean; domain: string | null } | null>(null);
+  const [ldap, setLdap] = useState<{ enabled: boolean; domain: string | null; org?: string | null } | null>(null);
   // 2. adım: parola doğru, Authenticator kodu bekleniyor
   const [challenge, setChallenge] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [recovery, setRecovery] = useState(false);
 
   useEffect(() => {
-    api<{ ldap: boolean; domain: string | null }>('/api/auth/config').then((r) => setLdap({ enabled: r.ldap, domain: r.domain }), () => setLdap(null));
+    api<{ ldap: boolean; domain: string | null; org: string | null }>('/api/auth/config').then((r) => setLdap({ enabled: r.ldap, domain: r.domain, org: r.org }), () => setLdap(null));
   }, []);
 
   const submit = async (e: React.FormEvent) => {
@@ -234,6 +234,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
             </>
           ) : (
             <>
+          {ldap?.org && <div className="mb-2 text-[12px] font-semibold uppercase tracking-[0.14em] text-emerald-600 dark:text-emerald-400">{ldap.org}</div>}
           <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">Tekrar hoş geldiniz</h2>
           <p className="mt-1.5 text-[14px] text-slate-500 dark:text-slate-400">
             {ldap?.enabled ? 'Kurumsal (Windows) hesabınızla giriş yapın.' : 'Panel hesabınızla giriş yapın.'}

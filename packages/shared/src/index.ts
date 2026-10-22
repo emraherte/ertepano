@@ -137,6 +137,7 @@ export type AgentToServer =
   | { t: 'ack'; id: string; action: 'seen' | 'read' | 'acked' | 'dismissed' | 'answered'; answer?: string }
   | { t: 'safety'; emergencyId: string; status: 'safe' | 'help'; note?: string }
   | { t: 'report'; kind: 'it_help' | 'near_miss'; text: string; anonymous?: boolean }
+  | { t: 'support_response'; sessionId: string; accepted: boolean; allowControl?: boolean; user?: string; reason?: string }
   | { t: 'pong' };
 
 export type ServerToAgent =
@@ -145,6 +146,8 @@ export type ServerToAgent =
   | { t: 'show'; item: SignedItem }
   | { t: 'revoke'; id: string }
   | { t: 'ping' }
+  | { t: 'support_request'; req: SignedItem }
+  | { t: 'support_end'; sessionId: string }
   | { t: 'error'; code: string };
 
 export const EMERGENCY_TYPES = ['yangin', 'deprem', 'tahliye', 'gaz', 'kimyasal', 'siber', 'diger'] as const;

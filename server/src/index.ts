@@ -12,6 +12,8 @@ import { authRoutes } from './auth.js';
 import { bootstrap } from './bootstrap.js';
 import { agentRoutes } from './hub.js';
 import { adminRoutes } from './routes/admin.js';
+import { supportRoutes } from './support.js';
+import { setupRoutes, startBackups } from './setup.js';
 import { announcementRoutes } from './routes/announcements.js';
 import { deviceRoutes } from './routes/devices.js';
 import { emergencyRoutes } from './routes/emergencies.js';
@@ -22,7 +24,13 @@ import { lockDataDir, registerHardening } from './hardening.js';
 bootstrap();
 lockDataDir();
 
-const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'warn' }, trustProxy: config.trustProxy.length ? config.trustProxy : false, bodyLimit: 3 * 1024 * 1024 });
+const https = config.tlsPfx ? { pfx: fs.readFileSync(config.tlsPfx), passphrase: config.tlsPfxPassword, minVersion: 'TLSv1.2' as const } : null;
+const app = Fastify({
+  logger: { level: process.env.LOG_LEVEL ?? 'warn' },
+  trustProxy: config.trustProxy.length ? config.trustProxy : false,
+  bodyLimit: 3 * 1024 * 1024,
+  ...(https ? { https } : {}),
+});
 
 app.setErrorHandler((err: Error, req, reply) => {
   if (err instanceof ZodError) {
@@ -38,7 +46,8 @@ registerHardening(app);
 
 await app.register(cookie);
 await app.register(multipart, { limits: { fileSize: 5 * 1024 * 1024, files: 1 } });
-await app.register(websocket, { options: { maxPayload: 64 * 1024 } });
+// uzaktan destek ekran kareleri (JPEG) için 2 MB; ajan denetim kanalı kendi içinde 64 KB ile sınırlı
+await app.register(websocket, { options: { maxPayload: 2 * 1024 * 1024 } });
 
 await app.register(authRoutes);
 await app.register(agentRoutes);
@@ -46,6 +55,8 @@ await app.register(announcementRoutes);
 await app.register(emergencyRoutes);
 await app.register(deviceRoutes);
 await app.register(adminRoutes);
+await app.register(supportRoutes);
+await app.register(setupRoutes);
 
 app.get('/api/health', async () => ({ ok: true, publicKey: publicKeyBase64 }));
 
@@ -70,10 +81,12 @@ if (fs.existsSync(config.panelDist)) {
 }
 
 const stopScheduler = startScheduler();
+const backupTimer = startBackups();
+app.addHook('onClose', async () => clearInterval(backupTimer));
 app.addHook('onClose', async () => stopScheduler());
 
 await app.listen({ port: config.port, host: config.host });
-console.log(`ErtePano sunucusu çalışıyor → http://localhost:${config.port}`);
+console.log(`ErtePano sunucusu çalışıyor → ${https ? 'https' : 'http'}://localhost:${config.port}`);
 console.log(`Ajan imza genel anahtarı: ${publicKeyBase64}`);
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

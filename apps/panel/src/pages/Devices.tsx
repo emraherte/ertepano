@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
+import { ScreenShare } from 'lucide-react';
+import { SupportStartModal } from '../components/SupportStart';
 import { AlertTriangle, Ban, CheckCircle2, Clock, Cpu, Download, HardDrive, MapPin, Monitor, MonitorCheck, Search, ShieldCheck, Tag, Wifi, WifiOff, X } from 'lucide-react';
 import { api, fmtAgo, fmtDateTime, useApi } from '../api';
 import type { Device } from '../types';
@@ -89,6 +91,8 @@ function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void
   const { data } = useApi<{ item: Device; telemetry: { cpuLoad: number; ramFreeMb: number; diskFreeGb: number; at: string }[]; reports: { id: string; kind: string; text: string; status: string; createdAt: string }[] }>(`/api/devices/${id}`);
   const [edit, setEdit] = useState<{ location: string; department: string; note: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [support, setSupport] = useState(false);
+  const canSupport = useLicense().has('it');
   const d = data?.item;
   const e = edit ?? { location: d?.location ?? '', department: d?.department ?? '', note: d?.note ?? '' };
 
@@ -108,6 +112,7 @@ function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void
   };
 
   return (
+    <>
     <Modal
       title={d ? <span className="font-mono">{d.hostname}</span> : 'Cihaz'}
       description={d ? (d.online ? 'Şu an çevrimiçi' : `Son görülme ${fmtAgo(d.lastSeen)}`) : undefined}
@@ -123,6 +128,11 @@ function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void
             ) : (
               <Button icon={ShieldCheck} disabled={busy} onClick={() => save({ status: 'approved' })}>
                 Engeli kaldır
+              </Button>
+            )}
+            {canSupport && d.status === 'approved' && (
+              <Button icon={ScreenShare} disabled={!d.online} title={d.online ? undefined : 'Cihaz çevrimdışı'} onClick={() => setSupport(true)}>
+                Uzaktan destek
               </Button>
             )}
             <div className="flex-1" />
@@ -203,6 +213,8 @@ function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void
         </div>
       )}
     </Modal>
+      {support && d && <SupportStartModal deviceId={d.id} hostname={d.hostname} user={d.lastUser} onClose={() => setSupport(false)} />}
+    </>
   );
 }
 
