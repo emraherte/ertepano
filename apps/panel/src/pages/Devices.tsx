@@ -31,6 +31,7 @@ import {
   useConfirm,
   Callout,
 } from '../ui';
+import { useLicense } from '../components/license';
 
 type Filter = 'all' | 'online' | 'pending' | 'alerts' | 'offline';
 
