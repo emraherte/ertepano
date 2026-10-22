@@ -244,6 +244,11 @@ const MIGRATIONS: string[] = [
   DROP INDEX IF EXISTS support_device;
   DROP TABLE IF EXISTS support_sessions;
   `,
+  // 8: ajanın mTLS istemci sertifikası (son bağlantıda görülen)
+  `
+  ALTER TABLE devices ADD COLUMN cert_subject TEXT;
+  ALTER TABLE devices ADD COLUMN cert_valid_to TEXT;
+  `,
 ];
 
 function migrate() {

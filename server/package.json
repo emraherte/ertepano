@@ -8,7 +8,7 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx --test --test-concurrency=1 test/security.test.ts"
+    "test": "node --import tsx --test --test-concurrency=1 test/security.test.ts test/mtls.test.ts"
   },
   "dependencies": {
     "@ertepano/shared": "0.1.0",

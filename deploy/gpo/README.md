@@ -58,6 +58,21 @@ Hizmet yapılandırma bulamazsa dakikada bir yeniden dener — ilke yazılımdan
 Ağ ve güvenlik duvarı: istemciden sunucuya yalnız HTTPS/WSS (443 ya da yapılandırdığınız port) yeterlidir; istemcide
 gelen bağlantı portu açılmaz. Antivirüs/EDR: `%ProgramFiles%\ErtePano\*.exe` imzalı yayımcı olarak izin listesine.
 
+### mTLS (isteğe bağlı, önerilir)
+
+Cihaz sırrına ek olarak her ajan kurumun iç CA'sından aldığı **bilgisayar sertifikasıyla** bağlanır; sertifikadaki ad cihaz
+adıyla eşleşmezse sunucu bağlantıyı reddeder (çalınan cihaz sırrı başka bilgisayarda işe yaramaz).
+
+1. AD CS: *Computer* şablonunu kopyalayın → ad "ErtePano Bilgisayar", **İstemci Kimlik Doğrulaması**, Konu adı: DNS adı,
+   *İstek İşleme → Özel anahtarın dışa aktarılmasına izin ver* açık; Domain Computers'a *Kaydol + Otomatik kaydol*.
+2. GPO → Bilgisayar Yapılandırması → İlkeler → Windows Ayarları → Güvenlik Ayarları → Ortak Anahtar İlkeleri →
+   *Sertifika Hizmetleri İstemcisi – Otomatik Kayıt* = Etkin (yenile + süresi dolanı güncelle).
+3. Aynı GPO → Komut Dosyaları → **Başlangıç**: `Install-ErtePanoClientCert.ps1 -Template "ErtePano Bilgisayar"`
+   (sertifikayı `%ProgramData%\ErtePano\service\client.pfx` olarak yalnızca SYSTEM'in okuyabileceği yere koyar, yenilenince
+   kendiliğinden günceller ve ajanı yeniden başlatır).
+4. Sunucu: `Install-ErtePanoServer.ps1 … -ClientCaPath kurum-ca.cer -Mtls optional` → panelde cihazların
+   *İstemci sertifikası* satırı dolunca `-Mtls required` ile yeniden çalıştırın.
+
 ## 3. İstemcide doğrulama
 
 ```powershell

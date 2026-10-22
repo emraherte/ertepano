@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async_tls_with_config, tungstenite::Message, Connector};
 
 const BACKOFF_SECS: [u64; 5] = [1, 2, 5, 10, 30];
 const TELEMETRY_EVERY: Duration = Duration::from_secs(60);
@@ -31,6 +31,8 @@ pub enum Status {
     NoService,
     /// İmza doğrulama anahtarı yok (ya da düz HTTP üzerinden ilk-kullanımda-güven reddedildi)
     NoKey,
+    /// Sunucu istemci sertifikasını (mTLS) kabul etmedi
+    CertRejected,
 }
 
 impl Status {
@@ -46,6 +48,7 @@ impl Status {
             Status::Offline => "offline",
             Status::NoService => "no_service",
             Status::NoKey => "no_key",
+            Status::CertRejected => "cert_rejected",
         }
     }
     pub fn from_code(c: &str) -> Status {
@@ -59,6 +62,7 @@ impl Status {
             "offline" => Status::Offline,
             "no_service" => Status::NoService,
             "no_key" => Status::NoKey,
+            "cert_rejected" => Status::CertRejected,
             _ => Status::Starting,
         }
     }
@@ -74,6 +78,7 @@ impl Status {
             Status::Offline => "Bağlantı yok (yeniden denenecek)",
             Status::NoService => "ErtePano hizmetine ulaşılamıyor",
             Status::NoKey => "Genel anahtar yapılandırılmamış",
+            Status::CertRejected => "İstemci sertifikası reddedildi (IT'ye bildirin)",
         }
     }
     pub fn connected(self) -> bool {
@@ -104,6 +109,7 @@ pub struct Client {
     dir: PathBuf,
     st: Mutex<State>,
     notify: tokio::sync::Notify,
+    tls: Option<native_tls::TlsConnector>,
 }
 
 enum SessErr {
@@ -111,6 +117,8 @@ enum SessErr {
     Auth,
     /// Kayıt anahtarı geçersiz (403)
     BadKey,
+    /// mTLS: sertifika yok / geçersiz / başka bilgisayara ait
+    Cert(String),
     Other(String),
 }
 
@@ -134,8 +142,31 @@ fn ws_url(server: &str) -> String {
     format!("{base}/ws/agent")
 }
 
-fn http() -> reqwest::Client {
-    reqwest::Client::builder().timeout(Duration::from_secs(15)).build().unwrap_or_default()
+/// Veri klasöründe client.pfx varsa onu istemci kimliği olarak kullanan TLS bağlayıcı (mTLS).
+/// Hizmet modunda klasör yalnızca SYSTEM ve Yöneticilere açıktır; kullanıcı sertifikanın özel anahtarına erişemez.
+fn tls_connector(dir: &std::path::Path, password: &str) -> Option<native_tls::TlsConnector> {
+    let path = dir.join("client.pfx");
+    let der = std::fs::read(&path).ok()?;
+    // parola yapılandırmada yoksa sertifikanın yanındaki dosyadan (Install-ErtePanoClientCert.ps1 yazar)
+    let from_file = std::fs::read_to_string(dir.join("client.pfx.password")).unwrap_or_default();
+    let password = if password.is_empty() { from_file.trim() } else { password };
+    let identity = match native_tls::Identity::from_pkcs12(&der, password) {
+        Ok(i) => i,
+        Err(e) => {
+            crate::log::log(&format!("istemci sertifikası okunamadı ({}): {e}", path.display()));
+            return None;
+        }
+    };
+    match native_tls::TlsConnector::builder().identity(identity).min_protocol_version(Some(native_tls::Protocol::Tlsv12)).build() {
+        Ok(c) => {
+            crate::log::log("mTLS: istemci sertifikası yüklendi");
+            Some(c)
+        }
+        Err(e) => {
+            crate::log::log(&format!("istemci sertifikası kullanılamadı: {e}"));
+            None
+        }
+    }
 }
 
 impl Client {
@@ -155,12 +186,23 @@ impl Client {
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
+        let tls = tls_connector(&dir, &cfg.client_cert_password);
         Arc::new(Client {
             cfg,
             dir,
+            tls,
             st: Mutex::new(State { device, tofu_key, outbox, status: Status::Starting }),
             notify: tokio::sync::Notify::new(),
         })
+    }
+
+    fn http(&self) -> reqwest::Client {
+        let b = reqwest::Client::builder().timeout(Duration::from_secs(15));
+        let b = match &self.tls {
+            Some(t) => b.use_preconfigured_tls(t.clone()),
+            None => b,
+        };
+        b.build().unwrap_or_default()
     }
 
     /// Duyuru imzalarını doğrulamak için genel anahtar (yapılandırmada sabitlenmiş ya da TOFU).
@@ -251,6 +293,12 @@ impl Client {
                     tokio::time::sleep(Duration::from_millis(500 + jitter_ms(1000))).await;
                     continue;
                 }
+                Err(SessErr::Cert(e)) => {
+                    crate::log::log(&format!("GÜVENLİK: sunucu istemci sertifikasını reddetti: {e}"));
+                    self.set_status(host.as_ref(), Status::CertRejected);
+                    tokio::time::sleep(Duration::from_secs(300) + Duration::from_millis(jitter_ms(30_000))).await;
+                    continue;
+                }
                 Err(SessErr::BadKey) => {
                     self.set_status(host.as_ref(), Status::BadKey);
                     tokio::time::sleep(Duration::from_secs(60) + Duration::from_millis(jitter_ms(5000))).await;
@@ -289,8 +337,12 @@ impl Client {
         if !cfg.department.trim().is_empty() {
             body["department"] = json!(cfg.department.trim());
         }
-        let res = http().post(format!("{}/api/agent/enroll", cfg.server_url)).json(&body).send().await.map_err(other)?;
+        let res = self.http().post(format!("{}/api/agent/enroll", cfg.server_url)).json(&body).send().await.map_err(other)?;
         if res.status().as_u16() == 403 {
+            let v: Value = res.json().await.unwrap_or(Value::Null);
+            if v.get("code").and_then(|c| c.as_str()) == Some("client_cert") {
+                return Err(SessErr::Cert(v.get("error").and_then(|e| e.as_str()).unwrap_or("").to_string()));
+            }
             return Err(SessErr::BadKey);
         }
         if !res.status().is_success() {
@@ -336,7 +388,7 @@ impl Client {
         let dev = self.ensure_device(host).await?;
         self.set_status(host, Status::Connecting);
         let url = ws_url(&self.cfg.server_url);
-        let (ws, _) = tokio::time::timeout(Duration::from_secs(15), connect_async(url.as_str()))
+        let (ws, _) = tokio::time::timeout(Duration::from_secs(15), connect_async_tls_with_config(url.as_str(), None, false, self.tls.clone().map(Connector::NativeTls)))
             .await
             .map_err(|_| SessErr::Other("bağlantı zaman aşımı".into()))?
             .map_err(other)?;
@@ -406,6 +458,9 @@ impl Client {
                                     let code = v.get("code").and_then(|x| x.as_str()).unwrap_or("");
                                     if code == "auth" {
                                         return Err(SessErr::Auth);
+                                    }
+                                    if code == "client_cert" {
+                                        return Err(SessErr::Cert("bağlantı reddedildi".into()));
                                     }
                                     return Err(SessErr::Other(format!("sunucu hatası: {code}")));
                                 }

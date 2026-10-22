@@ -31,6 +31,9 @@ export const config = {
   /** Doğrudan HTTPS (IIS/proxy gerekmez): kurumsal iç CA'dan alınmış .pfx */
   tlsPfx: env('TLS_PFX_PATH'),
   tlsPfxPassword: process.env.TLS_PFX_PASSWORD ?? '',
+  /** Ajan istemci sertifikalarını imzalayan kurum iç CA'sı (PEM) — verilirse mTLS açılır (bkz. mtls.ts) */
+  tlsClientCa: env('TLS_CLIENT_CA_PATH'),
+  mtls: (['off', 'optional', 'required'].includes(env('MTLS') ?? '') ? env('MTLS') : 'required') as 'off' | 'optional' | 'required',
   /** Çerezleri yalnızca HTTPS'te gönder; TLS_PFX_PATH verilirse kendiliğinden açılır */
   secureCookies: process.env.SECURE_COOKIES === 'true' || !!env('TLS_PFX_PATH'),
   /**

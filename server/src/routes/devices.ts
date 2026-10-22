@@ -29,6 +29,8 @@ interface DeviceFull {
   uptime_sec: number | null;
   first_seen: string;
   last_seen: string;
+  cert_subject: string | null;
+  cert_valid_to: string | null;
 }
 
 const DAY = 86400_000;
@@ -41,6 +43,7 @@ export function deviceAlerts(d: DeviceFull, online: boolean): string[] {
   if (d.uptime_sec && d.uptime_sec >= 14 * 86400) out.push(`${Math.floor(d.uptime_sec / 86400)} gündür yeniden başlatılmadı`);
   if (!online && Date.now() - Date.parse(d.last_seen) > 7 * DAY) out.push('7+ gündür görünmüyor');
   if (d.ram_total_mb && d.ram_total_mb < 6000) out.push('RAM 8 GB altı');
+  if (d.cert_valid_to && Date.parse(d.cert_valid_to) - Date.now() < 14 * DAY) out.push('İstemci sertifikası 14 gün içinde doluyor');
   return out;
 }
 
@@ -60,6 +63,7 @@ export function deviceDto(d: DeviceFull) {
     location: d.location, department: d.department, note: d.note, status: d.status, cpuModel: d.cpu_model, cpuLoad: d.cpu_load,
     ramTotalMb: d.ram_total_mb, ramFreeMb: d.ram_free_mb, diskTotalGb: d.disk_total_gb, diskFreeGb: d.disk_free_gb,
     uptimeSec: d.uptime_sec, firstSeen: d.first_seen, lastSeen: d.last_seen, online, alerts: deviceAlerts(d, online),
+    certSubject: d.cert_subject, certValidTo: d.cert_valid_to,
   };
 }
 

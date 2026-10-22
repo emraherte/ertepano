@@ -23,7 +23,16 @@ import { lockDataDir, registerHardening } from './hardening.js';
 bootstrap();
 lockDataDir();
 
-const https = config.tlsPfx ? { pfx: fs.readFileSync(config.tlsPfx), passphrase: config.tlsPfxPassword, minVersion: 'TLSv1.2' as const } : null;
+const https = config.tlsPfx
+  ? {
+      pfx: fs.readFileSync(config.tlsPfx),
+      passphrase: config.tlsPfxPassword,
+      minVersion: 'TLSv1.2' as const,
+      // mTLS: sertifika istenir ama TLS katmanında zorunlu değildir (tarayıcılar sertifikasız girer);
+      // ajan uç noktaları mtls.ts ile denetler
+      ...(config.tlsClientCa ? { ca: fs.readFileSync(config.tlsClientCa), requestCert: true, rejectUnauthorized: false } : {}),
+    }
+  : null;
 const app = Fastify({
   logger: { level: process.env.LOG_LEVEL ?? 'warn' },
   trustProxy: config.trustProxy.length ? config.trustProxy : false,

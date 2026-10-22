@@ -9,6 +9,7 @@ import { config } from './config.js';
 import { audit, db, getSetting, nowIso, setSetting } from './db.js';
 import { ldapSettings } from './ldap-settings.js';
 import { licenseInfo } from './license.js';
+import { mtlsMode } from './mtls.js';
 import { verifyPassword } from './security.js';
 
 const BACKUP_DIR = path.join(config.dataDir, 'backups');
@@ -95,6 +96,15 @@ export function securityChecks(): Check[] {
     https && config.secureCookies
       ? { id: 'https', label: 'HTTPS', status: 'ok', detail: `${config.publicUrl} — güvenli çerez açık.` }
       : { id: 'https', label: 'HTTPS', status: 'warn', detail: 'Panel ve ajan trafiği şifresiz olabilir. İç CA sertifikalı reverse proxy arkasında PUBLIC_URL=https://… ve SECURE_COOKIES=true verin.' },
+  );
+
+  const mt = mtlsMode();
+  checks.push(
+    mt === 'required'
+      ? { id: 'mtls', label: 'Ajan istemci sertifikası (mTLS)', status: 'ok', detail: 'Ajanlar kurum CA sertifikasıyla bağlanmak zorunda; sertifika bilgisayar adıyla eşleşmeli.' }
+      : mt === 'optional'
+        ? { id: 'mtls', label: 'Ajan istemci sertifikası (mTLS)', status: 'info', detail: 'İsteğe bağlı: sertifikasız ajanlar da bağlanabiliyor. Dağıtım bitince MTLS=required yapın.' }
+        : { id: 'mtls', label: 'Ajan istemci sertifikası (mTLS)', status: 'info', detail: 'Kapalı. Ajanlar yalnızca cihaz sırrıyla doğrulanıyor. Önerilir: TLS_CLIENT_CA_PATH (doğrudan HTTPS ile).' },
   );
 
   const l = ldapSettings();

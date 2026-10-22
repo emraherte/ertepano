@@ -26,6 +26,8 @@ pub struct Config {
     /// Kayıtta önerilen lokasyon/departman (GPO ile OU başına verilebilir)
     pub location: String,
     pub department: String,
+    /// mTLS istemci sertifikası (veri klasöründeki client.pfx) parolası; sertifika parolasızsa boş
+    pub client_cert_password: String,
     /// Nereden okunduğu (günlük ve "durum" ekranı için)
     #[serde(skip)]
     pub source: String,
@@ -88,6 +90,7 @@ fn from_registry(key: &str) -> Config {
         public_key: r("PublicKey"),
         location: r("Location"),
         department: r("Department"),
+        client_cert_password: r("ClientCertPassword"),
         source: format!(r"HKLM\{key}"),
     }
 }
@@ -115,6 +118,7 @@ pub fn load(allow_dev_env: bool) -> Option<Config> {
         (&mut cfg.public_key, policy.public_key),
         (&mut cfg.location, policy.location),
         (&mut cfg.department, policy.department),
+        (&mut cfg.client_cert_password, policy.client_cert_password),
     ] {
         if !src.is_empty() {
             *dst = src;

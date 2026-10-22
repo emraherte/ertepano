@@ -90,6 +90,9 @@ export interface Device {
   lastSeen: string;
   online: boolean;
   alerts: string[];
+  /** mTLS istemci sertifikası (son bağlantıda; yalnızca IT modülünde) */
+  certSubject?: string | null;
+  certValidTo?: string | null;
 }
 
 export interface EmergencyDetail {

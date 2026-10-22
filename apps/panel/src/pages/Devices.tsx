@@ -180,6 +180,7 @@ function DeviceModal({ id, onClose, onSaved }: { id: string; onClose: () => void
                 ['Disk (C:)', `${d.diskTotalGb?.toFixed(0) ?? '—'} GB · %${diskPct(d) ?? '—'} dolu`],
                 ['Açık kalma', days(d.uptimeSec)],
                 ['Ajan', `${d.agentVersion ?? '—'} · ilk kayıt ${fmtDateTime(d.firstSeen)}`],
+                ...(d.certSubject ? ([['İstemci sertifikası', `${d.certSubject} · bitiş ${fmtDateTime(d.certValidTo ?? null)}`]] as [string, string][]) : []),
               ]}
             />
           </div>

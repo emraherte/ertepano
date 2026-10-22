@@ -96,6 +96,13 @@ güvenlik ve KVKK ekibinin de gönlü rahat olacak şekilde canlıya almak.
 
 ---
 
+## 4.1 İsteğe bağlı: ajan sertifikası (mTLS)
+
+Kurumun AD CS'si varsa ajanlar bilgisayar sertifikasıyla da doğrulanır (`deploy/gpo/README.md` → *mTLS*). Önce
+`-Mtls optional` ile açın; Cihazlar → cihaz → *İstemci sertifikası* tüm bilgisayarlarda görünür olunca `-Mtls required`.
+Zorunlu modda sertifikası olmayan, kurum CA'sı dışından ya da başka bilgisayara verilmiş sertifikayla gelen ajan bağlanamaz
+ve denetim kaydına `device_cert_rejected` düşer. Panel (tarayıcı) etkilenmez. Sertifikanın bitişine 14 gün kala cihaz uyarı verir.
+
 ## 5. İşletim
 
 | İş | Nerede |

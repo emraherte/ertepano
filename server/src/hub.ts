@@ -7,6 +7,7 @@ import { audit, db, nowIso } from './db.js';
 import { activeForDevice, type AnnRow, type DeviceRow, deviceMatches, parseTargets, signItem } from './announcements.js';
 import { publicKeyBase64, randomToken, safeEqualHex, sha256, uuid } from './security.js';
 import { Limiter } from './auth.js';
+import { checkAgentCert, clientCert } from './mtls.js';
 import { deviceLimitReached, hasModule, REPORT_MODULE } from './license.js';
 
 // ---- Bağlı ajanlar ---------------------------------------------------------------------------
@@ -239,6 +240,12 @@ export async function agentRoutes(app: FastifyInstance) {
       })
       .parse(req.body);
     if (enrollLimiter.blocked(req.ip)) return reply.code(429).send({ error: 'Çok fazla kayıt denemesi' });
+    const certErr = checkAgentCert(req, body.hostname);
+    if (certErr) {
+      enrollLimiter.hit(req.ip);
+      audit(null, 'enroll_rejected', 'device', null, { hostname: body.hostname, reason: certErr }, req.ip);
+      return reply.code(403).send({ error: `mTLS: ${certErr}`, code: 'client_cert' });
+    }
     const key = db.prepare('SELECT * FROM enroll_keys WHERE key = ? AND revoked = 0').get(body.enrollKey.trim().toUpperCase()) as
       | { id: string; auto_approve: number; default_location: string | null; default_department: string | null }
       | undefined;
@@ -292,6 +299,7 @@ export async function agentRoutes(app: FastifyInstance) {
     const m = /^Device ([\w-]+):([0-9a-f]+)$/.exec(auth);
     const d = m ? (db.prepare('SELECT * FROM devices WHERE id = ?').get(m[1]) as (DeviceRow & { secret_hash: string }) | undefined) : undefined;
     if (!m || !d || !safeEqualHex(d.secret_hash, sha256(m[2]))) return reply.code(401).send({ error: 'auth' });
+    if (checkAgentCert(req, d.hostname)) return reply.code(403).send({ error: 'client_cert' });
     db.prepare('UPDATE devices SET last_seen = ? WHERE id = ?').run(nowIso(), d.id);
     const base = baseUrlOf(req);
     return { status: d.status, items: activeForDevice(d).map((a) => signItem(a, base)) };
@@ -316,6 +324,13 @@ export async function agentRoutes(app: FastifyInstance) {
       if (!conn) {
         if (msg.t !== 'hello') return;
         const d = db.prepare('SELECT * FROM devices WHERE id = ?').get(msg.deviceId) as (DeviceRow & { secret_hash: string }) | undefined;
+        const certErr = d ? checkAgentCert(req, d.hostname) : null;
+        if (d && certErr) {
+          audit(null, 'device_cert_rejected', 'device', d.id, { hostname: d.hostname, reason: certErr }, req.ip);
+          socket.send(JSON.stringify({ t: 'error', code: 'client_cert' } satisfies ServerToAgent));
+          socket.close(4003, 'client_cert');
+          return;
+        }
         if (!d || d.status === 'blocked' || !/^[0-9a-f]+$/.test(msg.deviceSecret) || !safeEqualHex(d.secret_hash, sha256(msg.deviceSecret))) {
           socket.send(JSON.stringify({ t: 'error', code: 'auth' } satisfies ServerToAgent));
           socket.close(4003, 'auth');
@@ -328,6 +343,8 @@ export async function agentRoutes(app: FastifyInstance) {
         db.prepare('UPDATE devices SET last_seen = ?, agent_version = COALESCE(?, agent_version), last_user = COALESCE(?, last_user), ip = ? WHERE id = ?').run(
           nowIso(), msg.agentVersion ?? null, msg.user || null, req.ip, d.id,
         );
+        const cert = clientCert(req);
+        if (cert?.authorized) db.prepare('UPDATE devices SET cert_subject = ?, cert_valid_to = ? WHERE id = ?').run(cert.subject, cert.validTo, d.id);
         send(conn, { t: 'welcome', status: d.status === 'approved' ? 'approved' : 'pending', serverTime: nowIso() });
         syncDevice(d.id);
         return;

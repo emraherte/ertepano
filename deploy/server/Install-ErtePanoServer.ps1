@@ -13,12 +13,16 @@
 
 .EXAMPLE
   .\Install-ErtePanoServer.ps1 -PublicUrl https://pano.sirket.local -PfxPath C:\certs\pano.pfx
+  .\Install-ErtePanoServer.ps1 -PublicUrl https://pano.sirket.local -PfxPath C:\certs\pano.pfx -ClientCaPath C:\certs\kurum-ca.cer -Mtls required
   .\Install-ErtePanoServer.ps1 -Uninstall
 #>
 [CmdletBinding()]
 param(
   [string]$PublicUrl,
   [string]$PfxPath,
+  # mTLS: ajan istemci sertifikalarını imzalayan kurum iç CA'sı (PEM/CER, Base64)
+  [string]$ClientCaPath,
+  [ValidateSet('optional', 'required')][string]$Mtls = 'optional',
   [string]$InstallDir = 'C:\ErtePano',
   [string]$DataDir,
   [int]$Port,
@@ -74,6 +78,11 @@ if ($PfxPath) {
   Copy-Item $PfxPath (Join-Path $certDir 'server.pfx') -Force
   $envLines += "TLS_PFX_PATH=$(Join-Path $certDir 'server.pfx')"
   $envLines += "TLS_PFX_PASSWORD=$plain"
+  if ($ClientCaPath) {
+    Copy-Item $ClientCaPath (Join-Path $certDir 'client-ca.pem') -Force
+    $envLines += "TLS_CLIENT_CA_PATH=$(Join-Path $certDir 'client-ca.pem')"
+    $envLines += "MTLS=$Mtls"
+  }
   icacls $certDir /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-20:(OI)(CI)R' | Out-Null
 } elseif ($PublicUrl -like 'https://*') {
   Write-Warning 'PublicUrl https ama -PfxPath verilmedi: HTTPS önünüzdeki reverse proxy tarafından sağlanmalı. TRUST_PROXY ve SECURE_COOKIES=true .env dosyasına eklenmeli.'

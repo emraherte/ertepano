@@ -122,6 +122,8 @@ IP ve kullanıcı başına kaba kuvvet sınırı, CSP/HSTS/Permissions-Policy ba
 (Denetim kaydı → *Bütünlüğü doğrula*) vardır. Yüklenen görsel türü dosya içeriğinden doğrulanır; duyurularda yalnızca sunucuya
 yüklenmiş görseller kullanılabilir. Kayıt anahtarını bilen biri onaylı bir cihazın kimliğine bürünemez (eski cihaz sırrı
 kanıtlanmazsa cihaz IT onayına düşer); ajan yalnızca kendisine gönderilen duyuruya yanıt yazabilir ve mesajları hız sınırlıdır.
+İsteğe bağlı **mTLS**: `TLS_CLIENT_CA_PATH` verilince ajanlar kurum CA'sından aldıkları bilgisayar sertifikasıyla bağlanır; sertifika
+cihaz adıyla eşleşmeli (`MTLS=optional|required`, bkz. `deploy/gpo/README.md`).
 Ajan ekran görüntüsü, pencere başlığı, klavye/fare, tarayıcı geçmişi veya dosya verisi **toplamaz**.
 
 ## Ajanı dağıtma
@@ -139,4 +141,4 @@ npm test     # 2FA, CSRF, hız sınırı, rol yetkileri/KVKK, yükleme doğrulam
 
 ## Bilinen eksikler (sıradaki adımlar)
 
-mTLS, imzalı otomatik güncelleme, PostgreSQL seçeneği, tatbikat tutanağı PDF — bkz. şartname §7.
+imzalı otomatik güncelleme, PostgreSQL seçeneği, tatbikat tutanağı PDF — bkz. şartname §7.
