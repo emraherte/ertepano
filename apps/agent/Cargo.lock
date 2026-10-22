@@ -1175,6 +1175,7 @@ dependencies = [
  "futures-util",
  "local-ip-address",
  "mac_address",
+ "native-tls",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
